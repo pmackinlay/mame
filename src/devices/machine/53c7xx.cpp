@@ -88,14 +88,21 @@ DEFINE_DEVICE_TYPE(NCR53C7XX, ncr53c7xx_device, "ncr537xx", "NCR 53C7xx SCSI")
 //-------------------------------------------------
 
 ncr53c7xx_device::ncr53c7xx_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	:   nscsi_device(mconfig, NCR53C7XX, tag, owner, clock),
-		nscsi_slot_card_interface(mconfig, *this, DEVICE_SELF),
-		device_execute_interface(mconfig, *this),
-		m_icount(0),
-		m_irq_handler(*this),
-		m_host_write(*this),
-		m_host_read(*this)
+	: nscsi_device(mconfig, NCR53C7XX, tag, owner, clock)
+	, nscsi_slot_card_interface(mconfig, *this, DEVICE_SELF)
+	, device_execute_interface(mconfig, *this)
+	, device_memory_interface(mconfig, *this)
+	, m_icount(0)
+	, m_space_config("host", ENDIANNESS_LITTLE, 32, 32, 0)
+	, m_irq_handler(*this)
 {
+}
+
+device_memory_interface::space_config_vector ncr53c7xx_device::memory_space_config() const
+{
+	return space_config_vector{
+		std::make_pair(AS_PROGRAM, &m_space_config)
+	};
 }
 
 
@@ -110,8 +117,6 @@ void ncr53c7xx_device::device_start()
 
 	// resolve line callbacks
 	m_irq_handler.resolve_safe();
-	m_host_read.resolve_safe(0);
-	m_host_write.resolve_safe();
 
 	m_tm = timer_alloc(FUNC(ncr53c7xx_device::step_timer), this);
 
@@ -128,8 +133,6 @@ void ncr53c7xx_device::device_start()
 	save_item(NAME(m_socl));
 	save_item(NAME(m_sfbr));
 	save_item(NAME(m_sidl));
-	save_item(NAME(m_sbdl));
-	save_item(NAME(m_sbcl));
 	save_item(NAME(m_dstat));
 	save_item(NAME(m_sstat));
 	save_item(NAME(m_ctest));
@@ -174,8 +177,6 @@ void ncr53c7xx_device::device_reset()
 	m_socl      = 0;
 	m_sfbr      = 0;
 	m_sidl      = 0;
-	m_sbdl      = 0;
-	m_sbcl      = 0;
 	m_dstat     = DSTAT_DFE;
 	m_sstat[0]  = 0;
 	m_sstat[1]  = 0;
@@ -213,240 +214,102 @@ void ncr53c7xx_device::device_reset()
 //  read - Host read handler
 //-------------------------------------------------
 
-uint32_t ncr53c7xx_device::read(offs_t offset, uint32_t mem_mask)
+uint8_t ncr53c7xx_device::read(offs_t offset)
 {
-	LOGMASKED(LOG_HOST, "%s: REG R: [%x] (%08X)\n", machine().describe_context(), offset, mem_mask);
+	LOGMASKED(LOG_HOST, "%s: REG R: [%x]\n", machine().describe_context(), offset);
 
-	uint32_t ret = 0;
+	uint8_t ret = 0;
 
 	switch (offset)
 	{
-		case 0x0:
+	case 0x0: ret = m_scntl[0]; break;
+	case 0x1: ret = m_scntl[1]; break;
+	case 0x2: ret = m_sdid; break;
+	case 0x3: ret = m_sien; break;
+
+	case 0x4: ret = m_scid; break;
+	case 0x5: ret = m_sxfer; break;
+	case 0x6: ret = m_sodl; break;
+	case 0x7: ret = m_socl; break;
+
+	case 0x8: ret = m_sfbr; break;
+	case 0x9: ret = m_sidl; break;
+	case 0xa: ret = u8(scsi_bus->data_r()); break;
+	case 0xb:
 		{
-			if (ACCESSING_BITS_0_7)
-			{
-				ret = m_scntl[0];
-			}
-			if (ACCESSING_BITS_8_15)
-			{
-				ret |= m_scntl[1] << 8;
-			}
-			if (ACCESSING_BITS_16_23)
-			{
-				ret |= m_sdid << 16;
-			}
-			if (ACCESSING_BITS_24_31)
-			{
-				ret |= m_sien << 24;
-			}
+			u32 const ctrl = scsi_bus->ctrl_r();
 
-			break;
+			ret = ((ctrl & S_INP) ? 0x01 : 0)
+				| ((ctrl & S_CTL) ? 0x02 : 0)
+				| ((ctrl & S_MSG) ? 0x04 : 0)
+				| ((ctrl & S_ATN) ? 0x08 : 0)
+				| ((ctrl & S_SEL) ? 0x10 : 0)
+				| ((ctrl & S_BSY) ? 0x20 : 0)
+				| ((ctrl & S_ACK) ? 0x40 : 0)
+				| ((ctrl & S_REQ) ? 0x80 : 0);
 		}
+		break;
 
-		case 0x1:
-		{
-			if (ACCESSING_BITS_0_7)
-			{
-				ret = m_scid;
-			}
-			if (ACCESSING_BITS_8_15)
-			{
-				ret |= m_sxfer << 8;
-			}
-			if (ACCESSING_BITS_16_23)
-			{
-				ret |= m_sodl << 16;
-			}
-			if (ACCESSING_BITS_24_31)
-			{
-				ret |= m_socl << 24;
-			}
+	case 0xc:
+		ret = m_dstat;
+		m_dstat = 0;
+		update_irqs();
+		break;
+	case 0xd:
+		ret = m_sstat[0];
+		m_sstat[0] = 0;
+		update_irqs();
+		break;
+	case 0xe: ret = m_sstat[1]; break;
+	case 0xf: ret = m_sstat[2]; break;
 
-			break;
-		}
+	case 0x14: ret = m_ctest[0]; break;
+	case 0x15: ret = m_ctest[1]; break;
+	case 0x16: ret = m_ctest[2]; break;
+	case 0x17: ret = m_ctest[3]; break;
 
-		case 0x2:
-		{
-			if (ACCESSING_BITS_0_7)
-			{
-				ret = m_sfbr;
-			}
-			if (ACCESSING_BITS_8_15)
-			{
-				ret |= m_sidl << 8;
-			}
-			if (ACCESSING_BITS_16_23)
-			{
-				ret |= m_sbdl << 16;
-			}
-			if (ACCESSING_BITS_24_31)
-			{
-				ret |= m_sbcl << 24;
-			}
+	case 0x18: ret = m_ctest[4]; break;
+	case 0x19: ret = m_ctest[5]; break;
+	case 0x1a: ret = m_ctest[6]; break;
+	case 0x1b: ret = m_ctest[7]; break;
 
-			break;
-		}
+	case 0x1c: ret = u8(m_temp >> 0); break;
+	case 0x1d: ret = u8(m_temp >> 8); break;
+	case 0x1e: ret = u8(m_temp >> 16); break;
+	case 0x1f: ret = u8(m_temp >> 24); break;
 
-		case 0x3:
-		{
-			if (ACCESSING_BITS_0_7)
-			{
-				ret = m_dstat;
-				// DFE isn't cleared on read
-				m_dstat &= DSTAT_DFE;
-				update_irqs();
-			}
-			if (ACCESSING_BITS_8_15)
-			{
-				ret |= m_sstat[0] << 8;
-				m_sstat[0] = 0;
-				update_irqs();
-			}
-			if (ACCESSING_BITS_16_23)
-			{
-				ret |= m_sstat[1] << 16;
-			}
-			if (ACCESSING_BITS_24_31)
-			{
-				ret |= m_sstat[2] << 24;
-			}
+	case 0x20: ret = m_dfifo; break;
+	case 0x21: ret = m_istat; break;
 
-			break;
-		}
+	case 0x24: ret = u8(m_dbc >> 0); break;
+	case 0x25: ret = u8(m_dbc >> 8); break;
+	case 0x26: ret = u8(m_dbc >> 16); break;
+	case 0x27: ret = m_dcmd; break;
 
-		case 0x5:
-		{
-			if (ACCESSING_BITS_0_7)
-			{
-				ret = m_ctest[0];
-			}
-			if (ACCESSING_BITS_8_15)
-			{
-				ret |= m_ctest[1] << 8;
-			}
-			if (ACCESSING_BITS_16_23)
-			{
-				ret |= m_ctest[2] << 16;
-			}
-			if (ACCESSING_BITS_24_31)
-			{
-				ret |= m_ctest[3] << 24;
-			}
+	case 0x28: ret = u8(m_dnad >> 0); break;
+	case 0x29: ret = u8(m_dnad >> 8); break;
+	case 0x2a: ret = u8(m_dnad >> 16); break;
+	case 0x2b: ret = u8(m_dnad >> 24); break;
 
-			break;
-		}
+	case 0x2c: ret = u8(m_dsp >> 0); break;
+	case 0x2d: ret = u8(m_dsp >> 8); break;
+	case 0x2e: ret = u8(m_dsp >> 16); break;
+	case 0x2f: ret = u8(m_dsp >> 24); break;
 
-		case 0x6:
-		{
-			if (ACCESSING_BITS_0_7)
-			{
-				ret = m_ctest[4];
-			}
-			if (ACCESSING_BITS_8_15)
-			{
-				ret |= m_ctest[5] << 8;
-			}
-			if (ACCESSING_BITS_16_23)
-			{
-				ret |= m_ctest[6] << 16;
-			}
-			if (ACCESSING_BITS_24_31)
-			{
-				ret |= m_ctest[7] << 24;
-			}
+	case 0x30: ret = u8(m_dsps >> 0); break;
+	case 0x31: ret = u8(m_dsps >> 8); break;
+	case 0x32: ret = u8(m_dsps >> 16); break;
+	case 0x33: ret = u8(m_dsps >> 24); break;
 
-			break;
-		}
+	case 0x34: ret = m_dmode; break;
 
-		case 0x7:
-		{
-			ret = m_temp;
+	case 0x39: ret = m_dien; break;
+	case 0x3a: ret = m_dwt; break;
+	case 0x3b: ret = m_dcntl; break;
 
-			break;
-		}
-
-		case 0x8:
-		{
-			if (ACCESSING_BITS_0_7)
-			{
-				ret = m_dfifo;
-			}
-			if (ACCESSING_BITS_8_15)
-			{
-				ret |= m_istat << 8;
-			}
-
-			break;
-		}
-
-		case 0x9:
-		{
-			if (ACCESSING_BITS_0_7 || ACCESSING_BITS_8_15 || ACCESSING_BITS_16_23)
-			{
-				ret = m_dbc;
-			}
-			if (ACCESSING_BITS_24_31)
-			{
-				ret |= m_dcmd << 24;
-			}
-
-			break;
-		}
-
-		case 0xa:
-		{
-			ret = m_dnad;
-
-			break;
-		}
-
-		case 0xb:
-		{
-			ret = m_dsp;
-
-			break;
-		}
-
-		case 0xc:
-		{
-			ret = m_dsps;
-
-			break;
-		}
-
-		case 0xd:
-		{
-			if (ACCESSING_BITS_0_7)
-			{
-				ret = m_dmode;
-			}
-
-			break;
-		}
-
-		case 0xe:
-		{
-			if (ACCESSING_BITS_8_15)
-			{
-				ret = m_dien << 8;
-			}
-			if (ACCESSING_BITS_16_23)
-			{
-				ret |= m_dwt << 16;
-
-			}
-			if (ACCESSING_BITS_24_31)
-			{
-				ret |= m_dcntl << 24;
-			}
-
-			break;
-		}
-
-		default:
-		{
-			LOGMASKED(LOG_UNHANDLED, "%s: Unhandled register access", machine().describe_context());
-		}
+	default:
+		LOGMASKED(LOG_UNHANDLED, "%s: Unhandled register access\n", machine().describe_context());
+		break;
 	}
 
 	return ret;
@@ -457,134 +320,79 @@ uint32_t ncr53c7xx_device::read(offs_t offset, uint32_t mem_mask)
 //  write - Host write handler
 //-------------------------------------------------
 
-void ncr53c7xx_device::write(offs_t offset, uint32_t data, uint32_t mem_mask)
+void ncr53c7xx_device::write(offs_t offset, uint8_t data)
 {
-	LOGMASKED(LOG_HOST, "%s: REG W: [%x] (%08X) %x\n", offset, mem_mask, data, machine().describe_context());
+	LOGMASKED(LOG_HOST, "%s: REG W: [%x] %x\n", machine().describe_context(), offset, data);
 
 	switch (offset)
 	{
-		case 0x0:
-		{
-			if (ACCESSING_BITS_0_7)
-			{
-				m_scntl[0] = data;
+		case 0x00:
+			m_scntl[0] = data;
 
-				if (data & SCNTL0_TRG)
-					fatalerror("53c7xx: Target mode unsupported!");
+			if (data & SCNTL0_TRG)
+				fatalerror("53c7xx: Target mode unsupported!");
 
-				if (data & SCNTL0_START)
-				{
-					// Start arbitration
-					set_scsi_state(ARBITRATE_WAIT_FREE);
-					step(true);
-				}
-			}
-			if (ACCESSING_BITS_8_15)
+			if (data & SCNTL0_START)
 			{
-				m_scntl[1] = data >> 8;
+				// Start arbitration
+				set_scsi_state(ARBITRATE_WAIT_FREE);
+				step(true);
 			}
-			if (ACCESSING_BITS_16_23)
-			{
-				m_sdid = data >> 16;
-			}
-			if (ACCESSING_BITS_24_31)
-			{
-				m_sien = data >> 24;
-			}
-
 			break;
-		}
+		case 0x01: m_scntl[1] = data; break;
+		case 0x02: m_sdid = data; break;
+		case 0x03: m_sien = data; break;
 
-		case 0x1:
-		{
-			if (ACCESSING_BITS_0_7)
+		case 0x04: m_scid = data; break;
+		case 0x05: m_sxfer = data; break;
+		case 0x06: m_sodl = data; break;
+		case 0x07:
 			{
-				m_scid = data;
-			}
-			if (ACCESSING_BITS_8_15)
-			{
-				m_sxfer = data >> 8;
-			}
-			if (ACCESSING_BITS_16_23)
-			{
-				m_sodl = data >> 16;
-			}
-			if (ACCESSING_BITS_24_31)
-			{
-				m_socl = data >> 24;
-			}
+				m_socl = data;
 
+				u32 const ctrl
+					= ((data & 0x01) ? S_INP : 0)
+					| ((data & 0x02) ? S_CTL : 0)
+					| ((data & 0x04) ? S_MSG : 0)
+					| ((data & 0x08) ? S_ATN : 0)
+					| ((data & 0x10) ? S_SEL : 0)
+					| ((data & 0x20) ? S_BSY : 0)
+					| ((data & 0x40) ? S_ACK : 0)
+					| ((data & 0x80) ? S_REQ : 0);
+
+				scsi_bus->ctrl_w(scsi_refid, ctrl, S_REQ | S_ACK | S_BSY | S_SEL | S_ATN | S_MSG | S_CTL | S_INP);
+			}
 			break;
-		}
 
-		case 0x6:
-		{
-			if (ACCESSING_BITS_0_7)
-			{
-				m_ctest[4] = data;
-			}
-			if (ACCESSING_BITS_8_15)
-			{
-				m_ctest[5] = data >> 8;
-			}
-			if (ACCESSING_BITS_16_23)
-			{
-				m_ctest[6] = data >> 16;
-			}
-			if (ACCESSING_BITS_24_31)
-			{
-				m_ctest[7] = data >> 24;
-			}
+		case 0x18: m_ctest[4] = data; break;
+		case 0x19: m_ctest[5] = data; break;
+		case 0x1a: m_ctest[6] = data; break;
+		case 0x1b: m_ctest[7] = data; break;
 
-			break;
-		}
+		case 0x1c: m_temp = (m_temp & 0xffffff00U) | (u32(data) << 0); break;
+		case 0x1d: m_temp = (m_temp & 0xffff00ffU) | (u32(data) << 8); break;
+		case 0x1e: m_temp = (m_temp & 0xff00ffffU) | (u32(data) << 16); break;
+		case 0x1f: m_temp = (m_temp & 0x00ffffffU) | (u32(data) << 24); break;
 
-		case 0x7:
-		{
-			m_temp = data;
+		case 0x20: m_dfifo = data; break;
+		case 0x21: m_istat = data; break;
 
-			break;
-		}
+		case 0x24: m_dbc = (m_dbc & 0xffff00U) | (u32(data) << 0); break;
+		case 0x25: m_dbc = (m_dbc & 0xff00ffU) | (u32(data) << 8); break;
+		case 0x26: m_dbc = (m_dbc & 0x00ffffU) | (u32(data) << 16); break;
+		case 0x27: m_dcmd = data; break;
 
-		case 0x8:
-		{
-			if (ACCESSING_BITS_0_7)
-			{
-				m_dfifo = data;
-			}
-			if (ACCESSING_BITS_8_15)
-			{
-				m_istat = data >> 8;
-			}
+		case 0x28: m_dnad = (m_dnad & 0xffffff00U) | (u32(data) << 0); break;
+		case 0x29: m_dnad = (m_dnad & 0xffff00ffU) | (u32(data) << 8); break;
+		case 0x2a: m_dnad = (m_dnad & 0xff00ffffU) | (u32(data) << 16); break;
+		case 0x2b: m_dnad = (m_dnad & 0x00ffffffU) | (u32(data) << 24); break;
 
-			break;
-		}
-
-		case 0x9:
-		{
-			if (ACCESSING_BITS_0_7 || ACCESSING_BITS_8_15 || ACCESSING_BITS_16_23)
-			{
-				m_dbc = data & 0xffffff;
-			}
-			if (ACCESSING_BITS_24_31)
-			{
-				m_dcmd = data >> 24;
-			}
-
-			break;
-		}
-
-		case 0xa:
-		{
-			m_dnad = data;
-
-			break;
-		}
-
-		case 0xb:
-		{
+		case 0x2c: m_dsp = (m_dsp & 0xffffff00U) | (u32(data) << 0); break;
+		case 0x2d: m_dsp = (m_dsp & 0xffff00ffU) | (u32(data) << 8); break;
+		case 0x2e: m_dsp = (m_dsp & 0xff00ffffU) | (u32(data) << 16); break;
+		case 0x2f:
 			// Write to the upper byte starts the fetch
-			m_dsp = data;
+			m_dsp = (m_dsp & 0x00ffffffU) | (u32(data) << 24);
 
 			if (m_dmode & 1)
 			{
@@ -594,72 +402,49 @@ void ncr53c7xx_device::write(offs_t offset, uint32_t data, uint32_t mem_mask)
 			{
 				set_scripts_state(SCRIPTS_FETCH);
 			}
-
 			break;
-		}
 
-		case 0xc:
-		{
-			m_dsps = data;
+		case 0x30: m_dsps = (m_dsps & 0xffffff00U) | (u32(data) << 0); break;
+		case 0x31: m_dsps = (m_dsps & 0xffff00ffU) | (u32(data) << 8); break;
+		case 0x32: m_dsps = (m_dsps & 0xff00ffffU) | (u32(data) << 16); break;
+		case 0x33: m_dsps = (m_dsps & 0x00ffffffU) | (u32(data) << 24); break;
 
+		case 0x34: m_dmode = data; break;
+
+		case 0x39: m_dien = data; break;
+		case 0x3a:
+			m_dwt = data;
+
+			if (m_dwt)
+				logerror("53c7xx: DMA Watchdog Timer enabled!\n");
 			break;
-		}
+		case 0x3b:
+			m_dcntl = data;
 
-		case 0xd:
-		{
-			if (ACCESSING_BITS_0_7)
+			// Note: not self-clearing
+			if (m_dcntl & 1) // RST
 			{
-				m_dmode = data;
+				device_reset();
+			}
+			else if (m_dcntl & 2) // STD
+			{
+				// Only applies to these modes:
+				// * Manual Start
+				// * Single Step
+				// * Pipeline
+				fatalerror("53c7xx: Start DMA");
+			}
+			else if (m_dcntl & 4)
+			{
+				logerror("53c7xx: SCSI Low-Level Mode not supported!");
 			}
 
+			// TODO: Update clocking
 			break;
-		}
-
-		case 0xe:
-		{
-			if (ACCESSING_BITS_8_15)
-			{
-				m_dien = data >> 8;
-			}
-			if (ACCESSING_BITS_16_23)
-			{
-				m_dwt = data >> 16;
-
-				if (m_dwt)
-					fatalerror("53c7xx: DMA Watchdog Timer enabled!");
-			}
-			if (ACCESSING_BITS_24_31)
-			{
-				m_dcntl = data >> 24;
-
-				// Note: not self-clearing
-				if (m_dcntl & 1) // RST
-				{
-					device_reset();
-				}
-				else if (m_dcntl & 2) // STD
-				{
-					// Only applies to these modes:
-					// * Manual Start
-					// * Single Step
-					// * Pipeline
-					fatalerror("53c7xx: Start DMA");
-				}
-				else if (m_dcntl & 4)
-				{
-					fatalerror("53c7xx: SCSI Low-Level Mode not supported!");
-				}
-
-				// TODO: Update clocking
-			}
-
-			break;
-		}
 
 		default:
-		{
-			LOGMASKED(LOG_UNHANDLED, "%s: Unhandled register access", machine().describe_context());
-		}
+			LOGMASKED(LOG_UNHANDLED, "%s: Unhandled register access\n", machine().describe_context());
+			break;
 	}
 }
 
@@ -731,8 +516,7 @@ void ncr53c7xx_device::send_byte()
 
 	set_scsi_state( (m_scsi_state & STATE_MASK) | (SEND_WAIT_SETTLE << SUB_SHIFT) );
 
-	uint32_t data = m_host_read(m_dnad & ~3, 0xffffffff);
-	data = data >> ((m_dnad & 3) * 8) & 0xff;
+	u8 const data = space(0).read_byte(m_dnad);
 
 	++m_dnad;
 	--m_dbc;
@@ -1089,9 +873,7 @@ void ncr53c7xx_device::step(bool timeout)
 			{
 				m_last_data = scsi_bus->data_r();
 
-				uint32_t shift = (8 * (m_dnad & 3));
-				uint32_t mem_mask = 0xff << shift;
-				m_host_write(m_dnad & ~3, data << shift, mem_mask);
+				space(0).write_byte(m_dnad, data);
 
 				++m_dnad;
 				--m_dbc;
@@ -1169,8 +951,8 @@ void ncr53c7xx_device::execute_run()
 				m_finished = false;
 
 				// Fetch the instruction
-				uint32_t inst = m_host_read(m_dsp, 0xffffffff);
-
+				uint32_t inst = space(0).read_dword_unaligned(m_dsp);
+				logerror("inst %x from %x\n", inst, m_dsp);
 				m_dcmd = inst >> 24;
 				m_dbc = inst & 0xffffff;
 
@@ -1252,7 +1034,7 @@ void ncr53c7xx_device::scripts_decode_bm(void)
 		}
 	}
 
-	m_dnad = m_host_read(m_dsp + 4, 0xffffffff);
+	m_dnad = space(0).read_dword_unaligned(m_dsp + 4);
 	m_dsp += 8;
 }
 
@@ -1330,7 +1112,7 @@ void ncr53c7xx_device::scripts_decode_io(void)
 	}
 
 	// Set some additional registers
-	m_dnad = m_dsps = m_host_read(m_dsp + 4, 0xffffffff);
+	m_dnad = m_dsps = space(0).read_dword_unaligned(m_dsp + 4);
 	m_dsp += 8;
 }
 
@@ -1365,7 +1147,7 @@ void ncr53c7xx_device::scripts_decode_tc(void)
 			break;
 	}
 
-	m_dnad = m_dsps = m_host_read(m_dsp + 4, 0xffffffff);
+	m_dnad = m_dsps = space(0).read_dword_unaligned(m_dsp + 4);
 	m_dsp += 8;
 }
 
@@ -1424,7 +1206,7 @@ void ncr53c7xx_device::bm_i_wmov()
 
 			// Indirect addressing
 			if (m_dcmd & (1 << 5))
-				m_dnad = m_host_read(m_dnad, 0xffffffff);
+				m_dnad = space(0).read_dword_unaligned(m_dnad);
 
 			// Compare the phase bits
 			if ((scsi_bus->ctrl_r() & 7) == (m_dcmd & 7))

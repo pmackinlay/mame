@@ -2,7 +2,7 @@
 // copyright-holders:Patrick Mackinlay
 
 /*
- * Motorola MVME180
+ * Motorola MVME181
  *
  * Sources:
  *  - OpenBSD 5.5 source code
@@ -12,15 +12,15 @@
  */
 
 #include "emu.h"
-#include "vme_mvme180.h"
+#include "vme_mvme181.h"
 
 #define VERBOSE 1
 #include "logmacro.h"
 
-DEFINE_DEVICE_TYPE(VME_MVME180, vme_mvme180_device, "mvme180", "Motorola MVME180")
+DEFINE_DEVICE_TYPE(VME_MVME181, vme_mvme181_device, "mvme181", "Motorola MVME181")
 
-vme_mvme180_device::vme_mvme180_device(machine_config const &mconfig, char const *tag, device_t *owner, u32 clock)
-	: device_t(mconfig, VME_MVME180, tag, owner, clock)
+vme_mvme181_device::vme_mvme181_device(machine_config const &mconfig, char const *tag, device_t *owner, u32 clock)
+	: device_t(mconfig, VME_MVME181, tag, owner, clock)
 	, device_vme_card_interface(mconfig, *this)
 	, m_cpu(*this, "cpu")
 	, m_mmu(*this, "mmu%u", 0U)
@@ -30,43 +30,43 @@ vme_mvme180_device::vme_mvme180_device(machine_config const &mconfig, char const
 {
 }
 
-ROM_START(mvme180)
-	ROM_REGION32_BE(0x40000, "eprom", 0)
-	ROM_SYSTEM_BIOS(0, "v25", "180bug version 2.5 copyright 1988 Motorola")
-	ROMX_LOAD("51_w5110b19_u34__8846__180bug_2.5.u34", 0x0003, 0x10000, CRC(9b4e483a) SHA1(c9b1e9e1735a015c38eb223ab126c40c40a9f89d), ROM_SKIP(3) | ROM_BIOS(0))
-	ROMX_LOAD("51_w5110b20_u35__8846__180bug_2.5.u35", 0x0002, 0x10000, CRC(1170b048) SHA1(ab8e2917c7150e4f74be600507690aa35444244c), ROM_SKIP(3) | ROM_BIOS(0))
-	ROMX_LOAD("51_w5110b21_u36__8846__180bug_2.5.u36", 0x0001, 0x10000, CRC(270fbc7b) SHA1(a61b8701c5f1133f930320f313309008ff5d5504), ROM_SKIP(3) | ROM_BIOS(0))
-	ROMX_LOAD("51_w5110b22_u37__8846__180bug_2.5.u37", 0x0000, 0x10000, CRC(67a60a6c) SHA1(0105317abf0105216078c94c02c223dd1cd61068), ROM_SKIP(3) | ROM_BIOS(0))
+ROM_START(mvme181)
+	ROM_REGION32_BE(0x80000, "eprom", 0)
+	ROM_SYSTEM_BIOS(0, "v301", "181bug Release Version 3.01 - 08/17/89")
+	ROMX_LOAD("181bug_a0.read.bin", 0x0000, 0x20000, CRC(79018bdb) SHA1(c52bfea145a56d2ad8765a508292557f096c4208), ROM_SKIP(3) | ROM_BIOS(0))
+	ROMX_LOAD("181bug_a1.read.bin", 0x0001, 0x20000, CRC(a5ac2d78) SHA1(feb16d3767cd382094de78b1043c702e29cde2ee), ROM_SKIP(3) | ROM_BIOS(0))
+	ROMX_LOAD("181bug_a2.read.bin", 0x0002, 0x20000, CRC(ddb90610) SHA1(30bd0cba86436689f8994c448515dd409e66d895), ROM_SKIP(3) | ROM_BIOS(0))
+	ROMX_LOAD("181bug_a3.read.bin", 0x0003, 0x20000, CRC(646d301f) SHA1(5871b5194e7fc623923f5df005b0463002e85626), ROM_SKIP(3) | ROM_BIOS(0))
 ROM_END
 
-static INPUT_PORTS_START(mvme180)
+static INPUT_PORTS_START(mvme181)
 INPUT_PORTS_END
 
-const tiny_rom_entry *vme_mvme180_device::device_rom_region() const
+const tiny_rom_entry *vme_mvme181_device::device_rom_region() const
 {
-	return ROM_NAME(mvme180);
+	return ROM_NAME(mvme181);
 }
 
-ioport_constructor vme_mvme180_device::device_input_ports() const
+ioport_constructor vme_mvme181_device::device_input_ports() const
 {
-	return INPUT_PORTS_NAME(mvme180);
+	return INPUT_PORTS_NAME(mvme181);
 }
 
-void vme_mvme180_device::device_start()
+void vme_mvme181_device::device_start()
 {
 	m_isr = 0;
 	m_imr = 0;
 }
 
-void vme_mvme180_device::device_reset()
+void vme_mvme181_device::device_reset()
 {
 	m_boot.select(0);
 }
 
-void vme_mvme180_device::device_add_mconfig(machine_config &config)
+void vme_mvme181_device::device_add_mconfig(machine_config &config)
 {
 	MC88100(config, m_cpu, 40_MHz_XTAL / 2);
-	m_cpu->set_addrmap(AS_PROGRAM, &vme_mvme180_device::cpu_mem);
+	m_cpu->set_addrmap(AS_PROGRAM, &vme_mvme181_device::cpu_mem);
 
 	MC88200(config, m_mmu[0], 40_MHz_XTAL / 2, 0x7e);
 	m_mmu[0]->set_mbus(m_cpu, AS_PROGRAM);
@@ -77,7 +77,7 @@ void vme_mvme180_device::device_add_mconfig(machine_config &config)
 	m_cpu->set_cmmu_d(m_mmu[1]);
 
 	SCN2681(config, m_duart, 3.6864_MHz_XTAL);
-	m_duart->irq_cb().set(FUNC(vme_mvme180_device::irq_w<6>));
+	m_duart->irq_cb().set(FUNC(vme_mvme181_device::irq_w<6>));
 	m_duart->outport_cb().set([this](u8 data) { LOG("port 0x%02x\n", data); });
 
 	RS232_PORT(config, m_serial[0], default_rs232_devices, "terminal");
@@ -90,13 +90,13 @@ void vme_mvme180_device::device_add_mconfig(machine_config &config)
 	m_serial[1]->rxd_handler().set(m_duart, FUNC(scn2681_device::rx_b_w));
 }
 
-void vme_mvme180_device::cpu_mem(address_map &map)
+void vme_mvme181_device::cpu_mem(address_map &map)
 {
 	map(0x0000'0000, 0x007f'ffff).view(m_boot);
-	m_boot[0](0x0000'0000, 0x0003'ffff).rom().region("eprom", 0);
+	m_boot[0](0x0000'0000, 0x0007'ffff).rom().region("eprom", 0);
 	m_boot[1](0x0000'0000, 0x007f'ffff).ram();
 
-	map(0xff80'0000, 0xff83'ffff).rom().region("eprom", 0);
+	map(0xff80'0000, 0xff87'ffff).rom().region("eprom", 0);
 	// 0xff81'0000 // ds1287 rtc?
 	map(0xffe1'0000, 0xffe1'0003).lr32([this]() { return m_isr; }, "isr");
 	map(0xffe2'0000, 0xffe2'0003).lw32(
@@ -115,7 +115,7 @@ void vme_mvme180_device::cpu_mem(address_map &map)
 	// 0xffee'0000 // clear abort interrupt?
 }
 
-template <unsigned N> void vme_mvme180_device::irq_w(int state)
+template <unsigned N> void vme_mvme181_device::irq_w(int state)
 {
 	LOG("irq_w<%d> %d\n", N, state);
 	if (state)
@@ -126,7 +126,7 @@ template <unsigned N> void vme_mvme180_device::irq_w(int state)
 	interrupt();
 }
 
-void vme_mvme180_device::interrupt()
+void vme_mvme181_device::interrupt()
 {
 	m_cpu->set_input_line(INPUT_LINE_IRQ0, bool(m_isr & m_imr));
 }

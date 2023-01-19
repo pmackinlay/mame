@@ -1,8 +1,8 @@
 // license:BSD-3-Clause
 // copyright-holders:Patrick Mackinlay
 
-#ifndef MAME_BUS_VME_MVME180_H
-#define MAME_BUS_VME_MVME180_H
+#ifndef MAME_BUS_VME_MVME181_H
+#define MAME_BUS_VME_MVME181_H
 
 #pragma once
 
@@ -14,12 +14,12 @@
 
 #include "bus/rs232/rs232.h"
 
-class vme_mvme180_device
+class vme_mvme181_device
 	: public device_t
 	, public device_vme_card_interface
 {
 public:
-	vme_mvme180_device(machine_config const &mconfig, char const *tag, device_t *owner, u32 clock);
+	vme_mvme181_device(machine_config const &mconfig, char const *tag, device_t *owner, u32 clock);
 
 protected:
 	// device_t overrides
@@ -47,6 +47,6 @@ private:
 	u8 m_imr; // interrupt mask register
 };
 
-DECLARE_DEVICE_TYPE(VME_MVME180, vme_mvme180_device)
+DECLARE_DEVICE_TYPE(VME_MVME181, vme_mvme181_device)
 
-#endif // MAME_BUS_VME_MVME180_H
+#endif // MAME_BUS_VME_MVME181_H

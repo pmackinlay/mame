@@ -21,7 +21,7 @@
 #define LOG_GENERAL (1U << 0)
 #define LOG_RXTX    (1U << 1)
 
-//#define VERBOSE (LOG_GENERAL|LOG_RXTX)
+#define VERBOSE (LOG_GENERAL|LOG_RXTX)
 #include "logmacro.h"
 
 DEFINE_DEVICE_TYPE(PC_KBD_IBM_PC_AT_101, ibm_pc_at_101_keyboard_device, "kb_pcat101", "IBM Model M Keyboard")

@@ -46,8 +46,9 @@ public:
 		: driver_device(mconfig, type, tag)
 		, m_cpu(*this, "cpu")
 		, m_ram(*this, "ram")
-		, m_rtc(*this, "rtc")
+		, m_nvsram(*this, "nvsram")
 		, m_scc(*this, "scc%u", 0U)
+		, m_serial(*this, "serial%u", 0U)
 		, m_scsibus(*this, "scsi")
 		, m_scsi(*this, "scsi:7:ncr53c96")
 		, m_net(*this, "net")
@@ -76,8 +77,9 @@ private:
 	required_device<ram_device> m_ram;
 
 	// i/o devices
-	required_device<m48t02_device> m_rtc;
+	required_device<mk48t08_device> m_nvsram;
 	required_device_array<z80scc_device, 2> m_scc;
+	required_device_array<rs232_port_device, 2> m_serial;
 	required_device<nscsi_bus_device> m_scsibus;
 	required_device<ncr53c94_device> m_scsi;
 	required_device<am7990_device> m_net;
@@ -89,18 +91,28 @@ void ews4800_state::machine_start()
 
 void ews4800_state::machine_reset()
 {
+	// HACK: init nvsram
+	m_nvsram->write(0x1c04, 0xc5);
 }
 
 void ews4800_state::init()
 {
 	// map the configured ram
-	m_cpu->space(0).install_ram(0x00000000, m_ram->mask(), m_ram->pointer());
+	m_cpu->space(0).install_ram(0x0000'0000, m_ram->mask(), m_ram->pointer());
 }
 
 
 void ews4800_state::cpu_map(address_map &map)
 {
-	map(0x1fc00000, 0x1fcfffff).rom().region("eprom", 0);
+	map(0x1e44'0000, 0x1e44'000f).rw(m_scc[1], FUNC(z80scc_device::ab_dc_r), FUNC(z80scc_device::ab_dc_w)).umask32(0xff000000);
+	map(0x1e48'0000, 0x1e48'000f).rw(m_scc[0], FUNC(z80scc_device::ab_dc_r), FUNC(z80scc_device::ab_dc_w)).umask32(0xff000000);
+
+	map(0x1e48'c000, 0x1e49'3fff).rw(m_nvsram, FUNC(mk48t08_device::read), FUNC(mk48t08_device::write)).umask32(0xff000000);
+	map(0x1e48'c000, 0x1e48'ffff).unmaprw();
+
+	map(0x1e00'0070, 0x1e00'0073).lw32([this](u32 data) { machine().schedule_soft_reset(); }, "reset_w");
+
+	map(0x1fc0'0000, 0x1fcf'ffff).rom().region("eprom", 0);
 }
 
 u16 ews4800_state::lance_r(offs_t offset, u16 mem_mask)
@@ -165,10 +177,31 @@ void ews4800_state::ews4800_310(machine_config &config)
 	m_net->dma_out().set(FUNC(ews4800_state::lance_w));
 
 	// mouse on channel A, keyboard on channel B?
-	SCC85230(config, m_scc[0], 4.915200_MHz_XTAL); // TODO: clock unconfirmed
-	SCC85230(config, m_scc[1], 4.915200_MHz_XTAL); // TODO: clock unconfirmed
+	SCC85230(config, m_scc[0], 9.8304_MHz_XTAL);
 
-	M48T02(config, m_rtc);
+	// serial ports
+	SCC85230(config, m_scc[1], 9.8304_MHz_XTAL);
+
+	// serial port A
+	RS232_PORT(config, m_serial[0], default_rs232_devices, "terminal");
+	m_scc[1]->out_dtra_callback().set(m_serial[0], FUNC(rs232_port_device::write_dtr));
+	m_scc[1]->out_rtsa_callback().set(m_serial[0], FUNC(rs232_port_device::write_rts));
+	m_scc[1]->out_txda_callback().set(m_serial[0], FUNC(rs232_port_device::write_txd));
+	m_serial[0]->cts_handler().set(m_scc[1], FUNC(z80scc_device::ctsa_w));
+	m_serial[0]->dcd_handler().set(m_scc[1], FUNC(z80scc_device::dcda_w));
+	m_serial[0]->rxd_handler().set(m_scc[1], FUNC(z80scc_device::rxa_w));
+
+	// serial port B
+	RS232_PORT(config, m_serial[1], default_rs232_devices, nullptr);
+	m_scc[1]->out_dtrb_callback().set(m_serial[1], FUNC(rs232_port_device::write_dtr));
+	m_scc[1]->out_rtsb_callback().set(m_serial[1], FUNC(rs232_port_device::write_rts));
+	m_scc[1]->out_txdb_callback().set(m_serial[1], FUNC(rs232_port_device::write_txd));
+	m_serial[1]->cts_handler().set(m_scc[1], FUNC(z80scc_device::ctsb_w));
+	m_serial[1]->dcd_handler().set(m_scc[1], FUNC(z80scc_device::dcdb_w));
+	m_serial[1]->rxd_handler().set(m_scc[1], FUNC(z80scc_device::rxb_w));
+
+	// MK48T18B
+	MK48T08(config, m_nvsram);
 }
 
 ROM_START(ews4800_310)

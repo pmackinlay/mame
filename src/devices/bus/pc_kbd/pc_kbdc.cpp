@@ -17,7 +17,7 @@ The following basic program can be useful for identifying scancodes:
 #include "pc_kbdc.h"
 
 #define LOG_SIGNALS (1U << 1)
-//#define VERBOSE (LOG_GENERAL)
+#define VERBOSE (LOG_GENERAL|LOG_SIGNALS)
 #include "logmacro.h"
 
 

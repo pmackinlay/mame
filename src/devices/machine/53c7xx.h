@@ -16,7 +16,7 @@
 #include "machine/nscsi_bus.h"
 
 
-class ncr53c7xx_device : public nscsi_device, public nscsi_slot_card_interface, public device_execute_interface
+class ncr53c7xx_device : public nscsi_device, public nscsi_slot_card_interface, public device_execute_interface, public device_memory_interface
 {
 public:
 	// construction/destruction
@@ -24,12 +24,10 @@ public:
 
 	// static configuration helpers
 	auto irq_handler() { return m_irq_handler.bind(); }
-	auto host_write() { return m_host_write.bind(); }
-	auto host_read() { return m_host_read.bind(); }
 
 	// our API
-	uint32_t read(offs_t offset, uint32_t mem_mask = ~0);
-	void write(offs_t offset, uint32_t data, uint32_t mem_mask = ~0);
+	uint8_t read(offs_t offset);
+	void write(offs_t offset, uint8_t data);
 
 protected:
 	// device-level overrides
@@ -38,10 +36,14 @@ protected:
 	virtual void execute_run() override;
 
 	TIMER_CALLBACK_MEMBER(step_timer);
+	// device_memory_interface overrides
+	virtual space_config_vector memory_space_config() const override;
 
 	int m_icount;
 
 private:
+
+	address_space_config m_space_config;
 
 	enum
 	{
@@ -136,8 +138,6 @@ private:
 	uint8_t   m_socl;
 	uint8_t   m_sfbr;
 	uint8_t   m_sidl;
-	uint8_t   m_sbdl;
-	uint8_t   m_sbcl;
 	uint8_t   m_dstat;
 	uint8_t   m_sstat[3];
 	uint8_t   m_ctest[8];
@@ -169,8 +169,6 @@ private:
 
 	// callbacks
 	devcb_write_line m_irq_handler;
-	devcb_write32 m_host_write;
-	devcb_read32 m_host_read;
 };
 
 // device type definition

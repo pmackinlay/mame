@@ -64,7 +64,10 @@
 #include "video/bt47x.h"
 #include "screen.h"
 
-#define VERBOSE (0)
+#define LOG_GENERAL (1U << 0)
+#define LOG_INT     (1U << 1)
+
+#define VERBOSE (LOG_GENERAL)
 #include "logmacro.h"
 
 namespace {
@@ -174,6 +177,7 @@ public:
 		, m_ramdac(*this, "ramdac")
 		, m_screen(*this, "screen")
 		, m_kbd(*this, "kbd")
+		, m_cram(*this, "cram")
 		, m_dram(*this, "dram")
 		, m_vram(*this, "vram")
 	{
@@ -200,6 +204,7 @@ private:
 
 	required_device<at_keyboard_device> m_kbd;
 
+	required_shared_ptr<u32> m_cram;
 	required_shared_ptr<u32> m_dram;
 	required_shared_ptr<u32> m_vram;
 
@@ -281,9 +286,51 @@ void ncdmcx_state::code_map(address_map &map)
 {
 	map(0x00000000, 0x0003ffff).rom().region("prom", 0);
 
+	map(0x04000000, 0x07ffffff).noprw();
 	map(0x04000000, 0x07ffffff).ram().share("cram"); // maximum 64M
+	//map(0x04000000, 0x041fffff).ram().share("cram"); // minimum 2M
 }
 
+/*
+ * vsync interrupt test @ 4005510
+ *
+ * 1. st 0xb6, 0x1d800000
+ * 2. enable cpu interrupts
+ * 3. intflag &= ~0x2
+ * 4. while !(intflag & 0x2) ...
+ *
+ * vsync_handler & 0x04006030
+ * 1. intflag |= 0x2
+ * 2. *(0x8000788)++
+ * 3. run timer routines
+ *
+ * interrupt_handler_sub @ 0x040057c0
+ * 1. ld.b 0x1d80000
+ * 2. &= *(0x800078c)  # interrupt mask?
+ * 3. check bit 7?
+ * 4. if bit 4, vsync
+ *
+ * interrupt_handler_sub @ 0x040057c0 tests interrupts:
+ * 1. bit 7
+ * 2. bit 4 (vsync)
+ * 3. bit 3 (serial?)
+ * 4. bit 2 (network?)
+ * 5. bit 6 (ack 0x2?)
+ * 6. bit 0 (ack 0x1)
+ * 7. bit 5 (lpt?)
+ * 8. bit 1 (soft interrupt?)
+ *
+ * # 0x1d80000 bit 4 == vsync
+ *
+ * mask is 0xb6
+ * 1d80001 <- 0x64 ack?
+ *
+ * soft_interrupt_test @ 4006080
+ * 1. mask &= 0xffbf
+ * 2. disable interrupts
+ * 3. int_w = 0xb7  # enable irq 0?
+ * 4. ack_w = 0x61  # toggle irq 0?
+ */
 void ncdmcx_state::data_map(address_map &map)
 {
 	map(0x00000000, 0x0003ffff).rom().region("prom", 0);
@@ -298,6 +345,19 @@ void ncdmcx_state::data_map(address_map &map)
 	// bit 1 -> icd2016a data
 	map(0x01580000, 0x01580003).nopw();
 
+	// 0x01500000.h - store 0x8000
+	// 0x01540000.b - store 0x00
+	// 0x01540001.b - store 0x00
+	// 0x01600000.h - store 0x8000
+	// 0x01640000.h - store 0x0000
+
+	// 0x01c00000.w - store 0
+	// 0x01c40000.w - store 0
+	// 0x01c80000.w - store 0
+	// 0x01cc0000.w - store 0xbe01f753
+	// 0x01d00000.w - store 0x4f4f1df3
+	// 0x01d40000.w - store 0xd01f386c
+
 	map(0x01d80000, 0x01d80000).lrw8(
 		[this]()
 		{
@@ -305,7 +365,7 @@ void ncdmcx_state::data_map(address_map &map)
 		}, "int_r",
 		[this](u8 data)
 		{
-			LOG("msk_w 0x%02x (%s)\n", data, machine().describe_context());
+			LOGMASKED(LOG_INT, "msk_w 0x%02x (%s)\n", data, machine().describe_context());
 
 			m_msk = data;
 			m_cpu->set_input_line(INPUT_LINE_IRQ0, bool(m_int & m_msk));
@@ -319,7 +379,7 @@ void ncdmcx_state::data_map(address_map &map)
 		}, "int?_r",
 		[this](u8 data)
 		{
-			LOG("ack_w 0x%02x int 0x%02x (%s)\n", data, m_int, machine().describe_context());
+			LOGMASKED(LOG_INT, "ack_w 0x%02x int 0x%02x (%s)\n", data, m_int, machine().describe_context());
 
 			// 0x20?
 			// 0x65
@@ -350,23 +410,229 @@ void ncdmcx_state::data_map(address_map &map)
 			return m_kbd->read();
 		}, "kbd_r");
 
+	// 0x01dc0002.w - store 0x0000
+	// 0x01e00000.h - store 0xa001 (-0x5fff), 0x2000 - keyboard control (reset, ie)?
+
 	map(0x02000000, 0x02ffffff).lw8(
 		[this](offs_t offset, u8 data)
 		{
-			LOG("dram_ctrl 0x%02x\n", offset >> 16);
+			//LOG("dram_ctrl 0x%0x\n", offset);
 		}, "dram_ctrl_w");
 	map(0x03000000, 0x03ffffff).lw8(
 		[this](offs_t offset, u8 data)
 		{
-			LOG("cram_ctrl 0x%02x\n", offset >> 16);
+			LOG("cram_ctrl 0x%02x slot %d int %d ext %d base %dM (%s)\n", offset >> 16, BIT(offset, 22, 2), BIT(offset, 18, 2), BIT(offset, 20, 2), u16(offset) >> 10, machine().describe_context());
+
+			if (BIT(offset, 18, 4))
+			{
+				if (BIT(offset, 22, 2) == 1 && BIT(offset, 18, 2))
+				{
+					logerror("mapping cram\n");
+					m_cpu->space(AS_DATA).install_ram(0x0400'0000, 0x043f'ffff, 0x00c0'0000, m_cram);
+				}
+				else
+				{
+					logerror("unmapping cram\n");
+					m_cpu->space(AS_DATA).unmap_readwrite(0x0400'0000, 0x07ff'ffff);
+				}
+			}
 		}, "cram_ctrl_w");
 
-	map(0x04000000, 0x07ffffff).ram().share("cram"); // maximum 64M
+	//map(0x04000000, 0x07ffffff).noprw(); // silence code ram
+	//map(0x08000000, 0x0dffffff).noprw(); // silence data ram
+	//map(0x04000000, 0x07ffffff).ram().share("cram"); // maximum 64M
 	map(0x08000000, 0x0dffffff).ram().share("dram"); // maximum 96M
+	//map(0x04000000, 0x041fffff).ram().share("cram"); // minimum 2M
+	//map(0x08000000, 0x083fffff).ram().share("dram"); // minimum 4M
+
+	// M5M482256J * 4      256Kx8 VRAM  (1M video ram)
+	// KM44C1000CLJ-7 * 8  1Mx4 DRAM    (4M data ram)
+	// KM416C256AJ-7 * 4   256Kx16 DRAM (2M code ram)
 
 	map(0x0e000000, 0x0e3fffff).ram().share("vram");
 }
 
+/*
+ * memory sizing at 0x2118
+ * - same function at 112c is called 4 times with same input param
+ * - appears to test reading/writing ram at offset 0, +1M and +4M
+ *
+[:cpu] ':cpu' (00001FF0): unmapped data memory write to 01CC0000 = FE01C659 & FFFFFFFF
+[:cpu] ':cpu' (00002000): unmapped data memory write to 01D00000 = 9F9F3FF7 & FFFFFFFF
+[:cpu] ':cpu' (00002010): unmapped data memory write to 01D40000 = 0019694E & FFFFFFFF
+
+[:cpu] ':cpu' (00002018): unmapped data memory write to 020C0000 = 00000000 & FF000000
+
+first
+[:cpu] ':cpu' (00002174): unmapped data memory write to 03710000 = 00000000 & FF000000
+second
+[:cpu] ':cpu' (000021A0): unmapped data memory write to 03410000 = 00000000 & FF000000
+[:cpu] ':cpu' (000021A8): unmapped data memory write to 03B00000 = 00000000 & FF000000
+third
+[:cpu] ':cpu' (000021D4): unmapped data memory write to 03800000 = 00000000 & FF000000
+[:cpu] ':cpu' (000021DC): unmapped data memory write to 03F00000 = 00000000 & FF000000
+fourth
+
+00000011 ........ -> mem control?
+........ xx...... -> range select 1,2,3?
+........ ..yyyy.. -> 1100 or 0011?
+........ ......zz -> enable/disable?
+
+
+e000014 = 0x0011 0100 1101 (initial0 = 0x034d)
+e000018 = 0x0011 1000 0000 (initial1 = 0x0380)
+e00001c = 0x0011 1100 0000 (initial2 = 0x03c0)
+
+first test
+
+0011 0111 0001 (0x371, initial0 0x34d & ~0xc | 0x30)
+second test
+0011 0100 0001 (0x0341, previous0 0x341 & ~0xc)
+
+0011 1011 0000 (0x03b0, initial1 0x0380 | 0x30)
+third test
+0011 1000 0000 (0x0380, previous1 0x03b0 & ~0x30)
+
+0011 1111 0000 (0x03f0, initial2 0x03c0 | 0x30)
+fourth test
+
+does this disable simm slots or mirroring?
+
+mem_size()
+
+[:] cram_ctrl 0x71 (slot 1? | 30)
+mem_size()
+[:] cram_ctrl 0x41 (~30)
+
+[:] cram_ctrl 0xb0 (slot 2? | 30)
+mem_size()
+[:] cram_ctrl 0x80 (~30)
+
+[:] cram_ctrl 0xf0 (slot 3? | 30)
+mem_size()
+
+[:] cram_ctrl 0x7d  0111 1101  (slot 1? | 30)
+[:] cram_ctrl 0xb0  1011 0000  (slot 2? | 30)
+[:] cram_ctrl 0xf0  1111 0000  (slot 3? | 30)
+
+
+[:] cram_ctrl 0x71
+[:] cram_ctrl 0x41
+[:] cram_ctrl 0xb0
+[:] cram_ctrl 0x80
+[:] cram_ctrl 0xf0
+[:] cram_ctrl 0x7d
+[:] cram_ctrl 0xb0
+[:] cram_ctrl 0xf0
+
+
+data ram
+
+0230
+0200
+0278
+0248
+02b1
+0281
+02f0
+02c0
+
+0010 0011 0000  slot 0 | 30
+0010 0000 0000
+0010 0111 1000  slot 1 | 30
+0010 0100 1000  slot 1
+0010 1011 0001  slot 2 | 30
+0010 1000 0001  slot 2
+0010 1111 0000  slot 3 | 30
+0010 1100 0000  slot 3
+
+*e000014 = 0x034d'0000
+ - 4d'0000 == 0100 1101 -> mem_size0()
+ - 71'0000 == 0111 0001 -> mem_size1()
+                   ^^ enable?
+                ^^ enable?
+              ^^ slot 1
+
+
+ - 80'0000 == 1000 0000
+ - b0'0000 == 1011 0000 -> mem_size2()
+                ^^ enable?
+              ^^ slot 2
+
+ - c0'0000 == 1100 0000
+ - f0'0000 == 1111 0000 -> mem_size3()
+                ^^ enable?
+              ^^ slot 3
+                
+switch mem_size0()
+   1M: *e000014 |= 0x04'0400		# low 16 bits base address of ram block?
+   4M: *e000014 |= 0x08'1000		# bits 18-19 give simm0 size?
+  16M: *e000014 |= 0x0c'4000
+
+switch mem_size1()
+   1M: *e000014 |= 0x10'0000		# bits 20-21 give simm1 size?
+   4M: *e000014 |= 0x20'0000
+  16M: *e000014 |= 0x30'0000
+
+*e000014 value is used to set mem_ctrl register when done @ 22b8 value 0x037d'4000
+  - 7d'4000 == 0111 1101 16M?
+                         ^^ from mem_size0
+                    ^^ from mem_size0
+				 ^^ from mem_size1
+
+switch mem_size2()
+   1M: *e000018 |= 0x10'0000		# bits 20-21 give simm1 size?
+   4M: *e000018 |= 0x20'0000
+  16M: *e000018 |= 0x30'0000
+
+# initial/default setup?
+[:] cram_ctrl 0x00 slot 0 int 0 ext 0 size 0M (':cpu' (00001638))
+[:] cram_ctrl 0x4d slot 1 int 3 ext 0 size 0M (':cpu' (00001640)) # maybe this is the only one which is enabled, mapped at base 0?
+[:] cram_ctrl 0x80 slot 2 int 0 ext 0 size 0M (':cpu' (00001648))
+[:] cram_ctrl 0xc0 slot 3 int 0 ext 0 size 0M (':cpu' (00001650))
+
+mem_size0()
+
+[:] cram_ctrl 0x71 slot 1 int 0 ext 3 size 0M (':cpu' (00002174)) # disable internal channel, enable external?
+mem_size1()
+[:] cram_ctrl 0x41 slot 1 int 0 ext 0 size 0M (':cpu' (000021A0)) # disable both
+
+[:] cram_ctrl 0xb0 slot 2 int 0 ext 3 size 0M (':cpu' (000021A8)) # enable external channel?
+mem_size2()
+[:] cram_ctrl 0x80 slot 2 int 0 ext 0 size 0M (':cpu' (000021D4)) # disable
+
+[:] cram_ctrl 0xf0 slot 3 int 0 ext 3 size 0M (':cpu' (000021DC))
+mem_size3()
+
+[:] cram_ctrl 0x7d slot 1 int 3 ext 3 size 16M (':cpu' (000022B8))
+[:] cram_ctrl 0xb0 slot 2 int 0 ext 3 size 32M (':cpu' (0000233C))
+[:] cram_ctrl 0xf0 slot 3 int 0 ext 3 size 48M (':cpu' (000023BC))
+[:] cram_ctrl 0x30 slot 0 int 0 ext 3 size 0M (':cpu' (000025C8))
+[:] cram_ctrl 0x31 slot 0 int 0 ext 3 size 16M (':cpu' (000028A8))
+*/
+
+/*
+ * get_key_rx(n,r11)
+ * 1  04011730  ld.b 0x1d80001 (read kbd?)
+ * 2  0401175c  st.b 1,0x1d80002
+ * 3  04011790  st.h 2001,0x1e00000  (reset kbd?)
+ * 4  040117c0  st.b r11^1,0x1d80003; st 0,0x1800000
+ * 5  040117f8  ld.b 0x1d80003
+ * 6  04011828  return r11&0x20
+ * 7  04011844  return r11&0x10
+ */
+
+/*
+ * interrupt_handler_sub @ 0x040057c0 tests interrupts:
+ * bit 0 (soft interrupt?)
+ * bit 1 (keyboard)
+ * bit 2 (network)
+ * bit 3 (serial)
+ * bit 4 (vsync)
+ * bit 5 (lpt?)
+ * bit 6 (soft interrupt?)
+ * bit 7
+ */
 template <unsigned N> void ncdmcx_state::irq_w(int state)
 {
 	if (state)

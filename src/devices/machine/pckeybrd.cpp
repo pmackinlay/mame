@@ -25,7 +25,7 @@
 /* AT keyboard documentation comes from www.beyondlogic.org and HelpPC documentation */
 
 /* to enable logging of keyboard read/writes */
-#define LOG_KEYBOARD    0
+#define LOG_KEYBOARD    1
 
 
 /*
@@ -623,10 +623,13 @@ uint8_t pc_keyboard_device::read()
 	data = m_queue[m_tail];
 
 	if (LOG_KEYBOARD)
-		logerror("read(): Keyboard Read 0x%02x\n",data);
+		logerror("read(): Keyboard Read 0x%02x (%s)\n",data, machine().describe_context());
 
 	m_tail++;
 	m_tail %= std::size(m_queue);
+
+	m_out_keypress_func(0);
+
 	return data;
 }
 

@@ -53,7 +53,7 @@
 #define LOG_COMMAND (1 << 2U)
 #define LOG_RCVR    (1 << 3U)
 #define LOG_XMTR    (1 << 4U)
-//#define VERBOSE (LOG_INIT | LOG_COMMAND | LOG_RCVR | LOG_XMTR)
+#define VERBOSE (LOG_INIT | LOG_COMMAND | LOG_RCVR | LOG_XMTR)
 #include "logmacro.h"
 
 //**************************************************************************
@@ -856,6 +856,7 @@ void scn2641_device::set_txemt(bool state)
 
 void scn_pci_device::write_thr(u8 data)
 {
+	logerror("write_thr 0x%02x\n", data);
 	m_thr = data;
 	m_thr_loaded = true;
 

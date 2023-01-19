@@ -60,10 +60,33 @@
  * HM53462ZP-10 * 8*8
  */
 
+/*
+SC0 at e1000000 vector 0x1
+sd0 at SC0 slave 6        1                     [ctr 0,id 6]
+usc0 at SC0 slave 0
+usc1 at SC0 slave 0
+XP0 at 71000000 vector 0x2
+fd0 at XP0 slave 0
+fd1 at XP0 slave 1
+lp0 at XP0 slave 4
+sio0 at XP0 slave 6
+sio1 at XP0 slave 7
+AM0 at f1000000 vector 0x4
+am0 at AM0 slave 0      Ethernet Address(0:0:a:3:48:90)
+EX0 at 91100000 vector 0x4
+ex0 at EX0 slave 0
+FB0 at b1080000 zero vector
+fb0 at FB0 slave 0  plane 8
+NV0 at 45000000 zero vector
+FZ0 at f1000008 zero vector
+fz0 at FZ0 slave 0
+root on sd0a
+*/
+
 #include "emu.h"
 
 #include "cpu/m88000/m88000.h"
-//#include "machine/mc88200.h"
+#include "machine/mc88200.h"
 #include "cpu/z180/hd647180x.h"
 
 // memory
@@ -92,12 +115,12 @@ public:
 	luna_88k_state(machine_config const &mconfig, device_type type, char const *tag)
 		: driver_device(mconfig, type, tag)
 		, m_cpu(*this, "cpu")
-		//, m_cmmu(*this, "cmmu%u", 0U)
+		, m_cmmu(*this, "cmmu%u", 0U)
 		, m_ram(*this, "ram")
 		, m_iop(*this, "iop")
 		, m_rtc(*this, "rtc")
 		, m_sio(*this, "sio")
-		, m_ppi(*this, "ppi%u", 0U)
+		, m_pio(*this, "pio%u", 0U)
 		, m_serial(*this, "serial%u", 0U)
 		, m_boot(*this, "boot")
 	{
@@ -120,12 +143,12 @@ protected:
 private:
 	// devices
 	required_device<mc88100_device> m_cpu;
-	//required_device_array<mc88200_device, 2> m_cmmu;
+	required_device_array<mc88200_device, 2> m_cmmu;
 	required_device<ram_device> m_ram;
 	required_device<hd647180x_device> m_iop;
 	required_device<mc146818_device> m_rtc;
 	required_device<upd7201_device> m_sio;
-	required_device_array<i8255_device, 2> m_ppi;
+	required_device_array<i8255_device, 2> m_pio;
 	required_device_array<rs232_port_device, 2> m_serial;
 
 	memory_view m_boot;
@@ -153,6 +176,9 @@ void luna_88k_state::cpu_map(address_map &map)
 	m_boot[0](0x00000000, 0x0003ffff).rom().region("eprom", 0);
 	m_boot[1](0x00000000, 0x00ffffff).ram();
 
+	// 0x0100'0000, 0x03ff'ffff  // ram
+	// 0x0400'0000, 0x3fff'ffff  // address afterimage?
+
 	// obio 1: 0x41000000 0x1f000000
 	// obio 2: 0x61000000 0x1f000000
 	// obio 3: 0x80000000 0x80000000
@@ -160,11 +186,39 @@ void luna_88k_state::cpu_map(address_map &map)
 	map(0x41000000, 0x4103ffff).rom().region("eprom", 0);
 	map(0x41000000, 0x4103ffff).lw32([this](offs_t offset, u32 data) { m_boot.select(1); }, "boot");
 
-	// map(0x43000000, 0x430003ff); // fuse rom
+	// map(0x43000000, 0x430003ff); // fuse rom - only 88k, 88k2 uses prom on network card
 	// 0x45000000 timekeeper? 0x1fdc? data reg 0x45000001
 	// 0x47000000 nvram 88k2 0x40 nvram page 0x47000020
-	map(0x49000000, 0x4900000f).rw(m_ppi[0], FUNC(i8255_device::read), FUNC(i8255_device::write)).umask32(0xff000000); // port a(dipsw1), port b(dipsw2)
-	map(0x4d000000, 0x4d00000f).rw(m_ppi[1], FUNC(i8255_device::read), FUNC(i8255_device::write)).umask32(0xff000000);
+	/*
+	 * pio0
+	 *   port a: dipsw1
+	 *   port b: dipsw2
+	 *   port c:   bit  function
+	 *              0   xp_int1_req (intr b)
+	 *              1   unused (ibf b)
+	 *              2   xp_int1_ena (inte b)
+	 *              3   xp_int5_req (intr a)
+	 *              4   xp_int5_ena (inte a)
+	 *              5   unused (ibf a)
+	 *              6   parity (pc6 output to enable parity error)
+	 *              7   xp_reset (pc7 output to reset hd647180 xp)
+	 */
+	map(0x49000000, 0x4900000f).rw(m_pio[0], FUNC(i8255_device::read), FUNC(i8255_device::write)).umask32(0xff000000);
+	/*
+	 * pio1
+	 *   port a: lcd read data?
+	 *   port b: ?
+	 *   port c:   bit  function
+	 *              0
+	 *              1   xp intreq input?
+	 *              2
+	 *              3
+	 *              4   power off?
+	 *              5   lcd set rw?
+	 *              6   lcd set rs?
+	 *              7   lcd set e?
+	 */
+	map(0x4d000000, 0x4d00000f).rw(m_pio[1], FUNC(i8255_device::read), FUNC(i8255_device::write)).umask32(0xff000000);
 	// 0x4d000000 lm16x212 lcd module?
 	// 0x51000000 upd7201a irq 5?
 	map(0x51000000, 0x5100000f).rw(m_sio, FUNC(upd7201_device::ba_cd_r), FUNC(upd7201_device::ba_cd_w)).umask32(0xff000000);
@@ -199,14 +253,12 @@ void luna_88k_state::luna88k2(machine_config &config)
 	MC88100(config, m_cpu, 33.333_MHz_XTAL);
 	m_cpu->set_addrmap(AS_PROGRAM, &luna_88k_state::cpu_map);
 
-#if 0
 	MC88200(config, m_cmmu[0], 33.333_MHz_XTAL, 0x06); // cpu0 cmmu d0
 	m_cmmu[0]->set_mbus(m_cpu, AS_PROGRAM);
 	m_cpu->set_cmmu_d(m_cmmu[0]);
 	MC88200(config, m_cmmu[1], 33.333_MHz_XTAL, 0x07); // cpu0 cmmu i0
 	m_cmmu[1]->set_mbus(m_cpu, AS_PROGRAM);
 	m_cpu->set_cmmu_i(m_cmmu[1]);
-#endif
 
 	// 6 SIMMs for RAM arranged as three groups of 2?
 	RAM(config, m_ram);
@@ -240,8 +292,8 @@ void luna_88k_state::luna88k2(machine_config &config)
 	sio_clk.signal_handler().append(m_sio, FUNC(upd7201_device::rxcb_w));
 	sio_clk.signal_handler().append(m_sio, FUNC(upd7201_device::txcb_w));
 
-	I8255A(config, m_ppi[0], 8'000'000); // M5M82C55AFP-2
-	I8255A(config, m_ppi[1], 8'000'000); // M5M82C55AFP-2
+	I8255A(config, m_pio[0], 8'000'000); // M5M82C55AFP-2
+	I8255A(config, m_pio[1], 8'000'000); // M5M82C55AFP-2
 }
 
 ROM_START(luna88k2)
@@ -250,7 +302,7 @@ ROM_START(luna88k2)
 	ROM_LOAD32_WORD_SWAP("7187__low__1.37.bin",  0x00002, 0x20000, CRC(8e65ea4a) SHA1(288300c71c0e92f114cb84fa293a4839d2e181a6)) // HN27C1024HCC-85
 
 	ROM_REGION(0x4000, "iop", 0)
-	ROM_LOAD("hd647180x.ic13", 0x0000, 0x4000, NO_DUMP) // HD647180X0FS6
+	ROM_LOAD("hd647180x.ic13", 0x0000, 0x4000, BAD_DUMP) // HD647180X0FS6
 ROM_END
 
 } // anonymous namespace
