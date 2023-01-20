@@ -14,15 +14,15 @@ public:
 
 	template <typename T> void set_mbus(T &&tag, int spacenum) { m_mbus.set_tag(std::forward<T>(tag), spacenum); }
 
-	void map(address_map &map);
-
 	template <typename T> std::optional<T> read(u32 virtual_address, bool supervisor, bool debug = false);
 	template <typename T> bool write(u32 virtual_address, T data, bool supervisor, bool debug = false);
 
 protected:
-	// device_t overrides
 	virtual void device_start() override;
 	virtual void device_reset() override;
+
+private:
+	void map(address_map &map);
 
 	u32 idr_r() { return m_idr; }
 	u32 scr_r() { return m_scr; }
@@ -74,8 +74,19 @@ protected:
 	template <typename T> std::optional<T> cache_read(u32 physical_address);
 	template <typename T> void cache_write(u32 physical_address, T data, bool wt, bool g);
 
+	struct cache_set
+	{
+		u32 status;
 
-private:
+		struct cache_line
+		{
+			u32 tag;
+			u32 data[4];
+		}
+		line[4];
+	};
+	std::optional<unsigned> cache_replace(cache_set const &cs);
+
 	required_address_space m_mbus;
 
 	u32 m_idr;  // identification register
@@ -88,26 +99,13 @@ private:
 	u32 m_sapr; // supervisor area pointer register
 	u32 m_uapr; // user area pointer register
 
-	u32 m_batc[10];
-	u64 m_patc[56];
+	u32 m_batc[10]; // block address translation cache
+	u64 m_patc[56]; // page address translation cache
 	unsigned m_patc_next;
 
 	bool m_bus_error;
 
-	struct cache_set
-	{
-		u32 status;
-
-		struct cache_line
-		{
-			u32 tag;
-			u32 data[4];
-		}
-		line[4];
-	};
-	std::unique_ptr<cache_set[]> m_cache;
-
-	std::optional<unsigned> cache_replace(cache_set const &cs);
+	std::unique_ptr<cache_set[]> m_cache; // data cache
 
 	u32 const m_id;
 };

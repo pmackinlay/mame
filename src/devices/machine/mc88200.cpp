@@ -1,6 +1,18 @@
 // license:BSD-3-Clause
 // copyright-holders:Patrick Mackinlay
 
+/*
+ * Motorola MC88200 Cache/Memory Management Unit (CMMU).
+ *
+ * Sources:
+ *  - MC88200 Cache/Memory Management User's Manual, Second Edition (MC88200UM/AD, Rev 1)
+ *
+ * TODO:
+ *  - multiple cmmus per pbus
+ *  - cache inhibited accesses invalidate matching cache tags (no writeback)
+ *  - mc88204 64k variant
+ */
+
 #include "emu.h"
 
 #include "mc88200.h"
@@ -29,7 +41,7 @@ enum idr_mask : u32
 enum idr_type_mask : u32
 {
 	TYPE_MC88200 = 0x00a00000,
-	TYPE_MC88204 = 0x00c00000,
+	TYPE_MC88204 = 0x00c00000, // 64k cache
 };
 
 enum ssr_mask : u32
@@ -196,11 +208,13 @@ void mc88200_device::device_reset()
 	m_sctr = 0;
 	m_pfsr = 0;
 	m_pfar = 0; // undefined
-	m_sapr = 0x40;
-	m_uapr = 0x40;
+	m_sapr = APR_CI;
+	m_uapr = APR_CI;
 
 	for (unsigned i = 0; i < 8; i++)
 		m_batc[i] = 0;
+
+	// batc contains two hard-wired entries
 	m_batc[8] = 0xfff7ffb5;
 	m_batc[9] = 0xfffffff5;
 
@@ -241,7 +255,7 @@ void mc88200_device::map(address_map &map)
 
 void mc88200_device::idr_w(u32 data)
 {
-	logerror("idr_w 0x%08x (%s)\n", data, machine().describe_context());
+	LOG("idr_w 0x%08x (%s)\n", data, machine().describe_context());
 
 	if ((data ^ m_idr) & IDR_ID)
 	{
@@ -255,7 +269,7 @@ void mc88200_device::idr_w(u32 data)
 
 void mc88200_device::scr_w(u32 data)
 {
-	logerror("scr_w 0x%08x (%s)\n", data, machine().describe_context());
+	LOG("scr_w 0x%08x (%s)\n", data, machine().describe_context());
 
 	char const *const action[] = { "line", "page", "segment", "all" };
 
@@ -401,9 +415,6 @@ void mc88200_device::cssp_w(u32 data)
 
 std::optional<mc88200_device::translate_result> mc88200_device::translate(u32 virtual_address, bool supervisor, bool write, bool debug)
 {
-	if (virtual_address == 0x00012000)
-		logerror("v 0x%08x s %d w %d d %d\n", virtual_address, supervisor, write, debug);
-
 	// select area descriptor
 	u32 const apr = supervisor ? m_sapr : m_uapr;
 	if (apr & APR_TE)
@@ -411,11 +422,8 @@ std::optional<mc88200_device::translate_result> mc88200_device::translate(u32 vi
 		// check block address translation cache
 		for (u32 const batc : m_batc)
 		{
-			if ((batc & BATC_V) && bool(batc & BATC_S) == supervisor && !((virtual_address ^ batc) & BATC_LBA))
+			if ((batc & BATC_V) && bool(batc & BATC_S) == supervisor && BIT(virtual_address, 19, 13) == BIT(batc, 19, 13))
 			{
-				if (virtual_address == 0x00012000)
-					logerror("batc\n");
-
 				if (!write || !(batc & BATC_WP))
 					return translate_result(((batc & BATC_PBA) << 13) | (virtual_address & ~BATC_LBA), batc & BATC_CI, batc & BATC_G, batc & BATC_WT);
 				else
@@ -433,9 +441,6 @@ std::optional<mc88200_device::translate_result> mc88200_device::translate(u32 vi
 		{
 			if ((patc & PATC_V) && (bool(patc & PATC_S) == supervisor && BIT(virtual_address, 12, 20) == BIT(patc, 26, 20)))
 			{
-				if (virtual_address == 0x00012000)
-					logerror("patc\n");
-
 				if (!write || !(patc & PATC_WP))
 				{
 					if (!write || (patc & PATC_M))
@@ -454,8 +459,6 @@ std::optional<mc88200_device::translate_result> mc88200_device::translate(u32 vi
 		}
 
 		// table search
-		if (virtual_address == 0x00012000)
-			logerror("table search\n");
 
 		// load and check segment descriptor
 		u32 const sgd = m_mbus->read_dword((apr & APR_STBA) | ((virtual_address & LA_SEG) >> 20));
@@ -524,17 +527,33 @@ std::optional<mc88200_device::translate_result> mc88200_device::translate(u32 vi
 				m_patc_next = 0;
 		}
 
-		if (virtual_address == 0x00012000)
-			logerror("descriptor\n");
-
 		return translate_result((pgd & PGD_PFA) | (virtual_address & LA_OFS), (apr | sgd | pgd) & PGD_CI, (apr | sgd | pgd) & PGD_G, (apr | sgd | pgd) & PGD_WT);
 	}
 	else
-		return translate_result(virtual_address, apr & APR_CI, apr & APR_G, apr & APR_WT);
+	{
+		/*
+		 * The user manual states that the hardwired BATC entries are used in
+		 * supervisor mode even when translation is disabled.
+		 *
+		 * Despite statements indicating that CMMU control space should be part
+		 * of the supervisor address space, the MVME181 firmware "Cache Inhibit
+		 * Bits" diagnostic requires that CMMU registers be accessible from
+		 * user mode when translation is disabled.
+		 * 
+		 * The following logic assumes that the hardwired entries are applied
+		 * when translation is disabled without regard to the active mode,
+		 * ensuring cache inhibit is activated.
+		 */
+		if (BIT(virtual_address, 19, 13) == BIT(m_batc[8], 19, 13))
+			return translate_result(((m_batc[8] & BATC_PBA) << 13) | (virtual_address & ~BATC_LBA), m_batc[8] & BATC_CI, m_batc[8] & BATC_G, m_batc[8] & BATC_WT);
+		else if (BIT(virtual_address, 19, 13) == BIT(m_batc[9], 19, 13))
+			return translate_result(((m_batc[9] & BATC_PBA) << 13) | (virtual_address & ~BATC_LBA), m_batc[9] & BATC_CI, m_batc[9] & BATC_G, m_batc[9] & BATC_WT);
+		else
+			return translate_result(virtual_address, apr & APR_CI, apr & APR_G, apr & APR_WT);
+	}
 }
 
 // TODO: data shift for byte/word access
-// TODO: update lru state on cache miss
 
 template <typename T> std::optional<T> mc88200_device::cache_read(u32 physical_address)
 {
@@ -598,7 +617,14 @@ template <typename T> std::optional<T> mc88200_device::cache_read(u32 physical_a
 		// mark line shared unmodified
 		cs.status &= ~(VV_1 << (l.value() * 2));
 
-		// TODO: update lru state
+		// update lru state
+		switch (l.value())
+		{
+		case 0: cs.status &= ~(CSSP_L3 | CSSP_L1 | CSSP_L0); break;
+		case 1: cs.status = (cs.status & ~(CSSP_L4 | CSSP_L2)) | CSSP_L0; break;
+		case 2: cs.status = (cs.status & ~CSSP_L5) | (CSSP_L2 | CSSP_L1); break;
+		case 3: cs.status |= (CSSP_L5 | CSSP_L4 | CSSP_L3); break;
+		}
 
 		// return data
 		u32 const data = cs.line[l.value()].data[BIT(physical_address, 2, 2)];
@@ -737,7 +763,14 @@ template <typename T> void mc88200_device::cache_write(u32 physical_address, T d
 		// mark line exclusive unmodified
 		cs.status &= ~(CSSP_VV0 << (l.value() * 2));
 
-		// TODO: update lru state
+		// update lru state
+		switch (l.value())
+		{
+		case 0: cs.status &= ~(CSSP_L3 | CSSP_L1 | CSSP_L0); break;
+		case 1: cs.status = (cs.status & ~(CSSP_L4 | CSSP_L2)) | CSSP_L0; break;
+		case 2: cs.status = (cs.status & ~CSSP_L5) | (CSSP_L2 | CSSP_L1); break;
+		case 3: cs.status |= (CSSP_L5 | CSSP_L4 | CSSP_L3); break;
+		}
 	}
 }
 
@@ -838,9 +871,6 @@ template <typename T> std::optional<T> mc88200_device::read(u32 virtual_address,
 
 	if (result.value().ci)
 	{
-		if (result.value().address == 0x3ffffff0)
-			return std::nullopt;
-
 		switch (sizeof(T))
 		{
 		case 1: return m_mbus->read_byte(result.value().address);

@@ -89,7 +89,7 @@ protected:
 	template <u32 EXIST> void interrupt_ex(int state);
 	void interrupt_check();
 
-	void pit_timer(void *ptr, int param)
+	void pit_timer(int param)
 	{
 		LOG("pit_timer<%d> expired\n", param);
 		m_pit_cmd[param] &= ~8;
@@ -101,8 +101,8 @@ protected:
 		case 3: interrupt_ex<EXIST_PIT3OF>(1); break;
 		}
 	}
-	void spken_timer(void *ptr, int param) { LOG("spken_timer expired\n", param); }
-	void rtc_timer(void *ptr, int param)
+	void spken_timer(int param) { LOG("spken_timer expired\n", param); }
+	void rtc_timer(int param)
 	{
 		LOG("rtc_timer expired\n");
 		interrupt_ex<EXIST_RTCOF>(1);
@@ -365,8 +365,8 @@ void aviion88k_state::machine_start()
 	for (emu_timer *&pit : m_pit)
 		pit = timer_alloc(FUNC(aviion88k_state::pit_timer), this);
 
-	m_spken = timer_alloc(FUNC(aviion88k_state::spken_timer), this));
-	m_rtc = timer_alloc(FUNC(aviion88k_state::rtc_timer), this));
+	m_spken = timer_alloc(FUNC(aviion88k_state::spken_timer), this);
+	m_rtc = timer_alloc(FUNC(aviion88k_state::rtc_timer), this);
 
 	m_ist = 0;
 	m_exist = 0;
