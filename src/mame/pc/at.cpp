@@ -279,6 +279,10 @@ void at_state::at32_map(address_map &map)
 	map(0x000e0000, 0x000fffff).rom().region("bios", 0);
 	map(0x00800000, 0x00800bff).ram().share("nvram");
 	map(0xfffe0000, 0xffffffff).rom().region("bios", 0);
+
+	// silence logging (shadow setup?)
+	map(0x000c0000, 0x000c7fff).nopw();
+	map(0x000f0000, 0x000fffff).nopw();
 }
 
 void at_state::at32l_map(address_map &map)

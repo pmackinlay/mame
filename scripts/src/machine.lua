@@ -5361,3 +5361,14 @@ if (MACHINES["SCI4"]~=null) then
 		MAME_DIR .. "src/devices/machine/sci4.h",
 	}
 end
+
+---------------------------------------------------
+--
+--@src/devices/machine/scn2681.h,MACHINES["SCN2681"] = true
+---------------------------------------------------
+if (MACHINES["SCN2681"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/machine/scn2681.cpp",
+		MAME_DIR .. "src/devices/machine/scn2681.h",
+	}
+end

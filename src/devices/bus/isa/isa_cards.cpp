@@ -89,6 +89,7 @@
 #include "finalchs.h"
 #include "bblue2.h"
 #include "opus100pm.h"
+#include "tctcs.h"
 
 
 void pc_isa8_cards(device_slot_interface &device)
@@ -251,4 +252,5 @@ void pc_isa16_cards(device_slot_interface &device)
 	device.option_add("omti8621", ISA16_OMTI8621);
 	device.option_add("lrk331", LRK331);
 	device.option_add("hpblp", HPBLP);
+	device.option_add("tctcs", ISA16_TCTCS);
 }
