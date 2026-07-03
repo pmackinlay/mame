@@ -54,7 +54,7 @@
 #include "emu.h"
 #include "am9517a.h"
 
-//#define VERBOSE 1
+#define VERBOSE 1
 #include "logmacro.h"
 
 
@@ -148,6 +148,9 @@ enum
 
 void am9517a_device::dma_request(int channel, bool state)
 {
+	if (BIT(m_status, channel + 4) == state)
+		return;
+
 	LOG("AM9517A Channel %u DMA Request: %u\n", channel, state);
 
 	if (state)
@@ -619,7 +622,8 @@ void am9517a_device::execute_run()
 
 			if (m_hack)
 			{
-				m_state = (MODE_MASK == MODE_CASCADE) ? STATE_SC : get_state1(true);
+				//m_state = (MODE_MASK == MODE_CASCADE) ? STATE_SC : get_state1(true);
+				m_state = get_state1(true);
 			}
 			else
 			{
@@ -822,6 +826,8 @@ uint8_t am9517a_device::read(offs_t offset)
 		}
 	}
 
+	logerror("%s: read 0x%x 0x%02x\n", machine().describe_context(), offset, data);
+
 	return data;
 }
 
@@ -832,6 +838,7 @@ uint8_t am9517a_device::read(offs_t offset)
 
 void am9517a_device::write(offs_t offset, uint8_t data)
 {
+	logerror("%s: write 0x%x 0x%02x\n", machine().describe_context(), offset, data);
 	if (!BIT(offset, 3))
 	{
 		int channel = (offset >> 1) & 0x03;
@@ -949,7 +956,7 @@ void am9517a_device::write(offs_t offset, uint8_t data)
 
 void am9517a_device::hack_w(int state)
 {
-	LOG("AM9517A Hold Acknowledge: %u\n", state);
+	LOG("AM9517A Hold Acknowledge: %u m_state %d\n", state, m_state);
 
 	m_hack = state;
 	trigger(1);

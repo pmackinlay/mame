@@ -25,6 +25,7 @@
 #define LOG_LED     (1U << 5)
 
 //#define VERBOSE (LOG_GENERAL|LOG_TLB|LOG_RELOAD|LOG_ECC|LOG_INVALID)
+#define VERBOSE (LOG_LED)
 #include "logmacro.h"
 
 enum roms_mask : u32
@@ -358,8 +359,10 @@ bool rosetta_device::iow(u32 address, u32 data)
 }
 
 // translate logical to physical address ignoring protection and without side effects
-bool rosetta_device::translate(u32 &address) const
+bool rosetta_device::translate(int spacenum, u32 &address, address_space *&target_space) const
 {
+	target_space = m_mem_space;
+
 	unsigned const segment = address >> 28;
 
 	// segment present
@@ -832,7 +835,8 @@ u32 rosetta_device::rca_r(offs_t offset)
 
 	if (!m_led_lock)
 	{
-		LOGMASKED(LOG_LED, "led 0x%02x (%s)\n", u8(offset), machine().describe_context());
+		if (u8(offset) != 0xff)
+			LOGMASKED(LOG_LED, "led 0x%02x (%s)\n", u8(offset), machine().describe_context());
 
 		m_leds[0] = led_pattern[(offset >> 0) & 15];
 		m_leds[1] = led_pattern[(offset >> 4) & 15];
@@ -1141,7 +1145,7 @@ bool rosetta_device::fetch(u32 address, u16 &data, rsc_mode const mode)
 	return true;
 }
 
-template <typename T> bool rosetta_device::load(u32 address, T &data, rsc_mode const mode, bool sp)
+template <typename T> bool rosetta_device::load(u32 address, T &data, T mask, rsc_mode const mode, bool sp)
 {
 	if (mode & rsc_mode::RSC_T)
 	{
@@ -1162,8 +1166,8 @@ template <typename T> bool rosetta_device::load(u32 address, T &data, rsc_mode c
 	switch (sizeof(T))
 	{
 	case 1: data = m_mem.read_byte(address); break;
-	case 2: data = m_mem.read_word(address); break;
-	case 4: data = m_mem.read_dword(address); break;
+	case 2: data = m_mem.read_word(address, mask); break;
+	case 4: data = m_mem.read_dword(address, mask); break;
 	}
 
 	switch ((mer ^ m_control[MER]) & (MER_B | MER_U | MER_C))
@@ -1191,7 +1195,7 @@ template <typename T> bool rosetta_device::load(u32 address, T &data, rsc_mode c
 	return true;
 }
 
-template <typename T> bool rosetta_device::store(u32 address, T data, rsc_mode const mode, bool sp)
+template <typename T> bool rosetta_device::store(u32 address, T data, T mask, rsc_mode const mode, bool sp)
 {
 	if (mode & rsc_mode::RSC_T)
 	{
@@ -1212,8 +1216,8 @@ template <typename T> bool rosetta_device::store(u32 address, T data, rsc_mode c
 	switch (sizeof(T))
 	{
 	case 1: m_mem.write_byte(address, data); break;
-	case 2: m_mem.write_word(address, data); break;
-	case 4: m_mem.write_dword(address, data); break;
+	case 2: m_mem.write_word(address, data, mask); break;
+	case 4: m_mem.write_dword(address, data, mask); break;
 	}
 
 	switch ((mer ^ m_control[MER]) & (MER_B | MER_W))
@@ -1235,7 +1239,7 @@ template <typename T> bool rosetta_device::store(u32 address, T data, rsc_mode c
 	return true;
 }
 
-template <typename T> bool rosetta_device::modify(u32 address, std::function<T(T)> f, rsc_mode const mode)
+template <typename T> bool rosetta_device::modify(u32 address, std::function<T(T)> f, T mask, rsc_mode const mode)
 {
 	if (mode & rsc_mode::RSC_T)
 	{
@@ -1256,8 +1260,8 @@ template <typename T> bool rosetta_device::modify(u32 address, std::function<T(T
 	switch (sizeof(T))
 	{
 	case 1: m_mem.write_byte(address, f(m_mem.read_byte(address))); break;
-	case 2: m_mem.write_word(address, f(m_mem.read_word(address))); break;
-	case 4: m_mem.write_dword(address, f(m_mem.read_dword(address))); break;
+	case 2: m_mem.write_word(address, f(m_mem.read_word(address, mask)), mask); break;
+	case 4: m_mem.write_dword(address, f(m_mem.read_dword(address, mask)), mask); break;
 	}
 
 	switch ((mer ^ m_control[MER]) & (MER_B | MER_W))

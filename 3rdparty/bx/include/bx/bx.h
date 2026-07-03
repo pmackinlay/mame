@@ -34,7 +34,7 @@
 #endif // BX_COMPILER_MSVC
 
 ///
-#define BX_ENABLED(_x) BX_IGNORE_C4127(bx::isEnabled<!!(_x)>::value)
+#define BX_ENABLED(_x) BX_IGNORE_C4127(bx::isEnabled<bool(_x)>::value)
 
 namespace bx
 {

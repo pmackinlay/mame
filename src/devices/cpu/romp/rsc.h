@@ -37,17 +37,19 @@ public:
 		RSC_PUT = 7,
 	};
 
-	virtual bool mem_load(u32 address, u8 &data, rsc_mode const mode = RSC_N, bool sp = false) = 0;
-	virtual bool mem_load(u32 address, u16 &data, rsc_mode const mode = RSC_N, bool sp = false) = 0;
-	virtual bool mem_load(u32 address, u32 &data, rsc_mode const mode = RSC_N, bool sp = false) = 0;
+	virtual bool translate(int spacenum, u32 &address, address_space *&target_space) const = 0;
 
-	virtual bool mem_store(u32 address, u8 data, rsc_mode const mode = RSC_N, bool sp = false) = 0;
-	virtual bool mem_store(u32 address, u16 data, rsc_mode const mode = RSC_N, bool sp = false) = 0;
-	virtual bool mem_store(u32 address, u32 data, rsc_mode const mode = RSC_N, bool sp = false) = 0;
+	virtual bool mem_load(u32 address, u8 &data, u8 mem_mask = ~u8(0), rsc_mode const mode = RSC_N, bool sp = false) = 0;
+	virtual bool mem_load(u32 address, u16 &data, u16 mem_mask = ~u16(0), rsc_mode const mode = RSC_N, bool sp = false) = 0;
+	virtual bool mem_load(u32 address, u32 &data, u32 mem_mask = ~u32(0), rsc_mode const mode = RSC_N, bool sp = false) = 0;
 
-	virtual bool mem_modify(u32 address, std::function<u8(u8)> f, rsc_mode const mode = RSC_N) = 0;
-	virtual bool mem_modify(u32 address, std::function<u16(u16)> f, rsc_mode const mode = RSC_N) = 0;
-	virtual bool mem_modify(u32 address, std::function<u32(u32)> f, rsc_mode const mode = RSC_N) = 0;
+	virtual bool mem_store(u32 address, u8 data, u8 mem_mask = ~u8(0), rsc_mode const mode = RSC_N, bool sp = false) = 0;
+	virtual bool mem_store(u32 address, u16 data, u16 mem_mask = ~u16(0), rsc_mode const mode = RSC_N, bool sp = false) = 0;
+	virtual bool mem_store(u32 address, u32 data, u32 mem_mask = ~u32(0), rsc_mode const mode = RSC_N, bool sp = false) = 0;
+
+	virtual bool mem_modify(u32 address, std::function<u8(u8)> f, u8 mem_mask = ~u8(0), rsc_mode const mode = RSC_N) = 0;
+	virtual bool mem_modify(u32 address, std::function<u16(u16)> f, u16 mem_mask = ~u16(0), rsc_mode const mode = RSC_N) = 0;
+	virtual bool mem_modify(u32 address, std::function<u32(u32)> f, u32 mem_mask = ~u32(0), rsc_mode const mode = RSC_N) = 0;
 
 	virtual bool pio_load(u32 address, u8 &data, rsc_mode const mode = RSC_N) = 0;
 	virtual bool pio_load(u32 address, u16 &data, rsc_mode const mode = RSC_N) = 0;
@@ -80,16 +82,15 @@ public:
 
 	// cpu interface
 	virtual bool fetch(u32 address, u16 &data, rsc_mode const mode = RSC_N) = 0;
-	virtual bool translate(u32 &address) const = 0;
 
 	// rsc_bus_interface overrides
-	virtual bool mem_load(u32 address, u8 &data, rsc_mode const mode = RSC_N, bool sp = true) override = 0;
-	virtual bool mem_load(u32 address, u16 &data, rsc_mode const mode = RSC_N, bool sp = true) override = 0;
-	virtual bool mem_load(u32 address, u32 &data, rsc_mode const mode = RSC_N, bool sp = true) override = 0;
+	virtual bool mem_load(u32 address, u8 &data, u8 mem_mask = ~u8(0), rsc_mode const mode = RSC_N, bool sp = true) override = 0;
+	virtual bool mem_load(u32 address, u16 &data, u16 mem_mask = ~u16(0), rsc_mode const mode = RSC_N, bool sp = true) override = 0;
+	virtual bool mem_load(u32 address, u32 &data, u32 mem_mask = ~u32(0), rsc_mode const mode = RSC_N, bool sp = true) override = 0;
 
-	virtual bool mem_store(u32 address, u8 data, rsc_mode const mode = RSC_N, bool sp = true) override = 0;
-	virtual bool mem_store(u32 address, u16 data, rsc_mode const mode = RSC_N, bool sp = true) override = 0;
-	virtual bool mem_store(u32 address, u32 data, rsc_mode const mode = RSC_N, bool sp = true) override = 0;
+	virtual bool mem_store(u32 address, u8 data, u8 mem_mask = ~u8(0), rsc_mode const mode = RSC_N, bool sp = true) override = 0;
+	virtual bool mem_store(u32 address, u16 data, u16 mem_mask = ~u16(0), rsc_mode const mode = RSC_N, bool sp = true) override = 0;
+	virtual bool mem_store(u32 address, u32 data, u32 mem_mask = ~u32(0), rsc_mode const mode = RSC_N, bool sp = true) override = 0;
 };
 
 #endif // MAME_CPU_ROMP_RSC_H

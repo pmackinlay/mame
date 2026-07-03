@@ -20,7 +20,7 @@
 #define LOG_LIVE    (1U << 12)  // Live states
 #define LOG_DONE    (1U << 13)  // Command done
 
-#define VERBOSE (LOG_GENERAL | LOG_WARN)
+#define VERBOSE (LOG_GENERAL | LOG_WARN|LOG_COMMAND)
 
 #include "logmacro.h"
 
@@ -360,6 +360,7 @@ void upd765_family_device::device_start()
 
 	cur_irq = false;
 	locked = false;
+	spec = 0;
 }
 
 void upd765_family_device::device_reset()
@@ -447,7 +448,7 @@ void upd765_family_device::reset_w(int state)
 	if(bool(state) == !BIT(dor, 2))
 		return;
 
-	LOGREGS("reset = %d\n", state);
+	logerror("reset = %d\n", state);
 	if(state) {
 		dor &= 0xfb;
 		soft_reset();
@@ -603,6 +604,7 @@ uint8_t upd765_family_device::msr_r()
 		}
 	}
 	msr |= get_drive_busy();
+	logerror("%s: msr_r 0x%02x\n", machine().describe_context(), msr);
 
 	return msr;
 }
@@ -725,6 +727,7 @@ void upd765_family_device::ccr_w(uint8_t data)
 void upd765_family_device::set_drq(bool state)
 {
 	if(state != drq) {
+		logerror("drq %d\n", state);
 		drq = state;
 		drq_cb(drq);
 	}
@@ -2619,7 +2622,7 @@ void upd765_family_device::check_irq()
 	cur_irq = irq || internal_drq;
 	cur_irq = cur_irq && (dor & 4) && (mode != mode_t::AT || (dor & 8));
 	if(cur_irq != old_irq) {
-		LOGTCIRQ("irq = %d\n", cur_irq);
+		logerror("irq = %d\n", cur_irq);
 		intrq_cb(cur_irq);
 	}
 }

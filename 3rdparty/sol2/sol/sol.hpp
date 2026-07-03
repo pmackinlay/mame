@@ -13152,8 +13152,8 @@ namespace sol {
 			static constexpr char32_t replacement = 0xFFFD;
 
 			static char32_t combine_surrogates(char16_t lead, char16_t trail) {
-				auto hi = lead - first_lead_surrogate;
-				auto lo = trail - first_trail_surrogate;
+				auto hi = char32_t(lead) - first_lead_surrogate;
+				auto lo = char32_t(trail) - first_trail_surrogate;
 				return normalizing_value + ((hi << lead_shifted_bits) | lo);
 			}
 		};
