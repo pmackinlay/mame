@@ -622,8 +622,7 @@ void am9517a_device::execute_run()
 
 			if (m_hack)
 			{
-				//m_state = (MODE_MASK == MODE_CASCADE) ? STATE_SC : get_state1(true);
-				m_state = get_state1(true);
+				m_state = (MODE_MASK == MODE_CASCADE) ? STATE_SC : get_state1(true);
 			}
 			else
 			{

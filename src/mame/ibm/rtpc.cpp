@@ -12,7 +12,6 @@
  * TODO:
  *   - finish refactoring iocc
  *   - additional machine variants
- *   - configurable RAM size
  *   - shared interrupts
  */
 /*
@@ -93,7 +92,7 @@
   *  - boots to vrm install disk menu
   *  - requires improved hard disk controller emulation
   *  - slot 5 = Schooner, 8 = Clipper
-  *  - 
+  *  - a6/15 error
   */
 
 #include "emu.h"
@@ -149,7 +148,6 @@ public:
 		, m_scc(*this, "scc")
 		, m_isa(*this, "isa")
 		, m_slot(*this, "isa%u", 1U)
-		, m_mcr(*this, "MCR")
 		, m_ipl(*this, "ipl")
 	{
 	}
@@ -184,7 +182,6 @@ protected:
 	required_device<isa16_device> m_isa;
 	optional_device_array<device_t, 8> m_slot;
 
-	required_ioport m_mcr;
 	required_region_ptr<u32> m_ipl;
 
 	u8 m_ch8er;  // dma channel 8 enable register
@@ -266,8 +263,7 @@ template <bool SCC> void rtpc_state::iocc_pio_map(address_map &map)
 	map(0x00'8c40, 0x00'8c40).mirror(0x03).w(FUNC(rtpc_state::crra_w));
 	map(0x00'8c60, 0x00'8c60).mirror(0x03).lr8([this]() { return m_crrb; }, "crrb_r");
 	map(0x00'8c60, 0x00'8c60).mirror(0x03).w(FUNC(rtpc_state::crrb_w));
-
-	map(0x00'8c80, 0x00'8c80).mirror(0x03).lr8([this]() { return m_mcr->read(); }, "mcr");
+	map(0x00'8c80, 0x00'8c80).mirror(0x03).r(m_mmu, FUNC(rosetta_device::mcr_r));
 	map(0x00'8ca0, 0x00'8ca0).mirror(0x03).w(FUNC(rtpc_state::dia_w));
 
 	// 8c82 diag dma mode?
@@ -368,13 +364,7 @@ void rtpc_state::common(machine_config &config)
 	input_merger_device &reqi2(INPUT_MERGER_ANY_LOW(config, "reqi2"));
 	reqi2.output_handler().set_inputline(m_cpu, INPUT_LINE_IRQ2).invert();
 
-	// TODO: hole for 1M/4M memory boards
-	// 2/2 rams 4M
-	// 2/1 rams 4M
-	// 1/1 rams 4M hole 1M
-	// 4/0 rams 4M
-	// 4/4 rams 16M hole 4M
-	ROSETTA(config, m_mmu, m_cpu->clock(), rosetta_device::RAM_4M);
+	ROSETTA(config, m_mmu, m_cpu->clock());
 	m_mmu->set_mem(m_cpu, AS_PROGRAM);
 	m_mmu->set_rom("ipl");
 	m_mmu->out_pchk().set(reqi2, FUNC(input_merger_device::in_w<0>));
@@ -421,10 +411,7 @@ void rtpc_state::common(machine_config &config)
 	m_dma[0]->out_iow_callback<3>().set([this](u8 data) { m_isa->dack_w(3, data); });
 	m_dma[0]->out_dack_callback<3>().set(m_iocc, FUNC(rtpc_iocc_device::dack_w<3>));
 
-	//m_dma[0]->out_hreq_callback().set(m_dma[0], FUNC(am9517a_device::hack_w));
-	// dma0 cascades to dma1?
-	m_dma[0]->out_hreq_callback().set(m_dma[1], FUNC(am9517a_device::dreq_w<0>));
-
+	m_dma[0]->out_hreq_callback().set([this](int state) { m_dma[0]->hack_w(state & BIT(m_crrb, 5)); });
 	m_dma[0]->in_memr_callback().set(m_iocc, FUNC(rtpc_iocc_device::dma_r));
 	m_dma[0]->out_memw_callback().set(m_iocc, FUNC(rtpc_iocc_device::dma_w));
 	m_dma[0]->out_eop_callback().set(m_pic[0], FUNC(pic8259_device::ir0_w));
@@ -454,7 +441,7 @@ void rtpc_state::common(machine_config &config)
 	m_isa->drq7_callback().set(m_dma[1], FUNC(am9517a_device::dreq_w<3>));
 	m_dma[1]->out_dack_callback<3>().set(m_iocc, FUNC(rtpc_iocc_device::dack_w<7>));
 
-	m_dma[1]->out_hreq_callback().set(m_dma[1], FUNC(am9517a_device::hack_w));
+	m_dma[1]->out_hreq_callback().set([this](int state) { m_dma[1]->hack_w(state & BIT(m_crrb, 5)); });
 	m_dma[1]->in_memr_callback().set(m_iocc, FUNC(rtpc_iocc_device::dma_r));
 	m_dma[1]->out_memw_callback().set(m_iocc, FUNC(rtpc_iocc_device::dma_w));
 
@@ -620,35 +607,11 @@ ROM_END
 #define rom_rtpc025 rom_ibm6150
 #define rom_rtpca25 rom_ibm6150
 
-// TODO: make rosetta responsive to configuration setting
-INPUT_PORTS_START(rtpc)
-	PORT_START("MCR")
-	PORT_CONFNAME(0x07, 0x00, "Slot C")
-	PORT_CONFSETTING(0x00, "4MB")
-	PORT_CONFSETTING(0x01, "1MB")
-	PORT_CONFSETTING(0x04, "8MB")
-	PORT_CONFSETTING(0x05, "2MB")
-	PORT_CONFSETTING(0x06, "512KB")
-	PORT_CONFSETTING(0x07, "Empty")
-
-	PORT_CONFNAME(0x08, 0x00, "Refresh Rate")
-	PORT_CONFSETTING(0x08, u8"7.0µs")
-	PORT_CONFSETTING(0x00, u8"13.8µs")
-
-	PORT_CONFNAME(0xf0, 0xf0, "Slot D")
-	PORT_CONFSETTING(0x80, "4MB")
-	PORT_CONFSETTING(0x90, "1MB")
-	PORT_CONFSETTING(0xc0, "8MB")
-	PORT_CONFSETTING(0xd0, "2MB")
-	PORT_CONFSETTING(0xe0, "512KB")
-	PORT_CONFSETTING(0xf0, "Empty")
-INPUT_PORTS_END
-
 } // anonymous namespace
 
 /*   YEAR   NAME      PARENT  COMPAT  MACHINE   INPUT  CLASS        INIT         COMPANY                             FULLNAME               FLAGS */
-COMP(1986,  rtpc010,  0,      0,      ibm6151,  rtpc,  rtpc_state,  empty_init,  "International Business Machines",  "IBM RT PC Model 010", MACHINE_NOT_WORKING)
-COMP(1986,  rtpc015,  0,      0,      ibm6151,  rtpc,  rtpc_state,  empty_init,  "International Business Machines",  "IBM RT PC Model 015", MACHINE_NOT_WORKING)
-COMP(1986,  rtpc020,  0,      0,      ibm6150,  rtpc,  rtpc_state,  empty_init,  "International Business Machines",  "IBM RT PC Model 020", MACHINE_NOT_WORKING)
-COMP(1986,  rtpc025,  0,      0,      ibm6150,  rtpc,  rtpc_state,  empty_init,  "International Business Machines",  "IBM RT PC Model 025", MACHINE_NOT_WORKING)
-COMP(1986,  rtpca25,  0,      0,      ibm6150,  rtpc,  rtpc_state,  empty_init,  "International Business Machines",  "IBM RT PC Model A25", MACHINE_NOT_WORKING)
+COMP(1986,  rtpc010,  0,      0,      ibm6151,  0,     rtpc_state,  empty_init,  "International Business Machines",  "IBM RT PC Model 010", MACHINE_NOT_WORKING)
+COMP(1986,  rtpc015,  0,      0,      ibm6151,  0,     rtpc_state,  empty_init,  "International Business Machines",  "IBM RT PC Model 015", MACHINE_NOT_WORKING)
+COMP(1986,  rtpc020,  0,      0,      ibm6150,  0,     rtpc_state,  empty_init,  "International Business Machines",  "IBM RT PC Model 020", MACHINE_NOT_WORKING)
+COMP(1986,  rtpc025,  0,      0,      ibm6150,  0,     rtpc_state,  empty_init,  "International Business Machines",  "IBM RT PC Model 025", MACHINE_NOT_WORKING)
+COMP(1986,  rtpca25,  0,      0,      ibm6150,  0,     rtpc_state,  empty_init,  "International Business Machines",  "IBM RT PC Model A25", MACHINE_NOT_WORKING)

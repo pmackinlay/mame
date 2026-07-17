@@ -78,7 +78,6 @@ u8 rtpc_iocc_device::dma_r(offs_t offset)
 	if (!BIT(m_dmr, 7 - m_adc))
 	{
 		// page mode
-		//u16 const tcw = m_adc < 4 ? m_tcw[(m_adc << 7) | BIT(offset, 11, 5)] : m_tcw[(m_adc << 6) | BIT(offset, 11, 5)];
 		u16 const tcw = m_tcw[(m_adc << 6) | BIT(offset, 11, 5)];
 		u32 const addr = BIT(tcw, 0, 13) << 11 | (offset & 0x7ff);
 
@@ -103,7 +102,6 @@ void rtpc_iocc_device::dma_w(offs_t offset, u8 data)
 	if (!BIT(m_dmr, 7 - m_adc))
 	{
 		// page mode
-		//u16 const tcw = m_adc < 4 ? m_tcw[(m_adc << 7) | BIT(offset, 11, 5)] : m_tcw[(m_adc << 6) | BIT(offset, 11, 5)];
 		u16 const tcw = m_tcw[(m_adc << 6) | BIT(offset, 11, 5)];
 		u32 const addr = BIT(tcw, 0, 13) << 11 | (offset & 0x7ff);
 
