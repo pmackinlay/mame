@@ -19,6 +19,7 @@ public:
 	auto out_int() { return m_int_cb.bind(); }
 	auto fifo_empty() { return m_fifo_empty.bind(); }
 	auto fifo_read() { return m_fifo_read.bind(); }
+	auto out_drq() { return m_drq_cb.bind(); }
 
 	// raster engine interface
 	void re_rdy_w(int state) { m_re_rdy = bool(state); }
@@ -43,7 +44,7 @@ public:
 	virtual void execute_run() override;
 	virtual void execute_set_input(int inputnum, int state) override {}
 
-	u32 buffer_r(offs_t offset) { return m_bus; }
+	u32 buffer_r(offs_t offset) { if (m_decode.control == 0xf) { logerror("buffer_r 0x%08x\n", m_bus); m_burst = true; set_drq(false); } return m_bus; }
 
 	template <bool High> u32 code_r(offs_t offset);
 	u32 data_r(offs_t offset);
@@ -57,6 +58,8 @@ public:
 
 	u32 finish_r(offs_t offset) { return m_finish[offset]; }
 	void finish_w(offs_t offset, u32 data, u32 mem_mask) { m_finish[offset] = data; }
+
+	void burst_w(u32 data);
 
 protected:
 	void code_map(address_map &map) ATTR_COLD;
@@ -73,6 +76,14 @@ protected:
 			m_int_cb(m_int_state);
 		}
 	}
+	void set_drq(bool state)
+	{
+		if (state != m_drq_state)
+		{
+			m_drq_state = state;
+			m_drq_cb(m_drq_state);
+		}
+	}
 
 private:
 	// device configuration state
@@ -82,6 +93,7 @@ private:
 	required_device<wtl3132_device> m_fpu;
 
 	devcb_write_line m_int_cb;
+	devcb_write_line m_drq_cb;
 	devcb_read_line m_fifo_empty;
 	devcb_read64 m_fifo_read;
 	devcb_read32 m_re_r;
@@ -102,6 +114,7 @@ private:
 
 	// line state
 	bool m_int_state;
+	bool m_drq_state;
 	bool m_cwen;
 	bool m_fpu_c;
 	bool m_re_rdy;
@@ -140,6 +153,8 @@ private:
 	u64 m_bus;
 	u32 m_fpu_data;
 	bool m_fpu_c_latch;
+
+	bool m_burst;
 };
 
 class sgi_ge5_disassembler : public util::disasm_interface

@@ -122,6 +122,10 @@ u32 sgi_re2_device::reg_r(offs_t offset)
 	case REG_DZF:
 	case REG_STIP:
 	case REG_STIPCOUNT:
+
+		// can these registers be read anyway?
+	case REG_IR:
+	case REG_PIXTYPE:
 		data = m_reg[offset];
 		LOGMASKED(LOG_REG, "reg_r register 0x%02x (%s) data 0x%x\n", offset, regname[offset], data);
 		break;

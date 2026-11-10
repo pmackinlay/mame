@@ -29,9 +29,10 @@ public:
 	auto out_vblank() { return m_screen.lookup()->screen_vblank(); }
 	auto out_int() { return m_ge.lookup()->out_int(); }
 	auto out_int_fifo() { return m_int_fifo_cb.bind(); }
+	auto out_drq() { return m_ge.lookup()->out_drq(); }
 
 	u32 dma_r() { return m_ge.lookup()->buffer_r(0); }
-	void dma_w(u32 data) { fifo_w(0, data, 0xffffffffU); }
+	void dma_w(u32 data) { m_ge.lookup()->burst_w(data); } // fifo_w(0, data, 0xffffffffU);
 
 	void reset_w(int state);
 

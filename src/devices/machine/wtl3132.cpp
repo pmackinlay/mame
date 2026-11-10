@@ -449,39 +449,39 @@ std::string wtl3132_device::disassemble(u64 const code)
 		case MF_FCLSR: alu = std::string("fclsr"); break;
 		case MF_FSTSR: alu = std::string("fstsr"); break;
 
-		case MF_FMODE: alu = util::string_format("fmode   0x%04x", (OPF(code, ABIN) << 10) | (OPF(code, CADD) << 5) | OPF(code, AADD)); break;
-		case MF_FABS:  alu = util::string_format("fabs    %4s, %s", reg(OPF(code, AADD)), adst(code)); break;
-		case MF_FLOAT: alu = util::string_format("float   %4s, %s", reg(OPF(code, AADD)), adst(code)); break;
-		case MF_FIX:   alu = util::string_format("fix     %4s, %s", reg(OPF(code, AADD)), adst(code)); break;
-		case MF_FLUT:  alu = util::string_format("flut    %4s, %s", reg(OPF(code, AADD)), reg(OPF(code, CADD))); break;
+		case MF_FMODE: alu = util::string_format("fmode 0x%04x", (OPF(code, ABIN) << 10) | (OPF(code, CADD) << 5) | OPF(code, AADD)); break;
+		case MF_FABS:  alu = util::string_format("fabs %s,%s", reg(OPF(code, AADD)), adst(code)); break;
+		case MF_FLOAT: alu = util::string_format("float %s,%s", reg(OPF(code, AADD)), adst(code)); break;
+		case MF_FIX:   alu = util::string_format("fix %s,%s", reg(OPF(code, AADD)), adst(code)); break;
+		case MF_FLUT:  alu = util::string_format("flut %s,%s", reg(OPF(code, AADD)), reg(OPF(code, CADD))); break;
 
 		}
 		break;
-	case F_FSUBR: alu = util::string_format("fsubr   %4s, %4s, %s", reg(OPF(code, AADD)), abin(code), adst(code)); break;
+	case F_FSUBR: alu = util::string_format("fsubr %s,%s,%s", reg(OPF(code, AADD)), abin(code), adst(code)); break;
 	case F_FSUB:
 		if (!OPF(code, CWEN) || OPF(code, ADST) != 3 || OPF(code, ENCN))
-			alu = util::string_format("fsub    %4s, %4s, %s", reg(OPF(code, AADD)), abin(code), adst(code));
+			alu = util::string_format("fsub %s,%s,%s", reg(OPF(code, AADD)), abin(code), adst(code));
 		else
 			alu = std::string("fnop");
 		break;
 	case F_FADD:
 		// FIXME: unsure if write enable is masked externally?
 		if (OPF(code, ADST) != 3 || OPF(code, ENCN) || OPF(code, ABIN) != 7) // !OPF(code, CWEN) ||
-			alu = util::string_format("fadd    %4s, %4s, %s", reg(OPF(code, AADD)), abin(code), adst(code));
+			alu = util::string_format("fadd %s,%s,%s", reg(OPF(code, AADD)), abin(code), adst(code));
 		else
 			alu = std::string("fnop");
 		break;
 
-	case F_FMNA: alu = util::string_format("fmna    %4s, %4s, %4s, %s", reg(OPF(code, AADD)), mbin(code), abin(code), adst(code)); break;
-	case F_FMNS: alu = util::string_format("fmns    %4s, %4s, %4s, %s", reg(OPF(code, AADD)), mbin(code), abin(code), adst(code)); break;
-	case F_FMAC: alu = util::string_format("fmac    %4s, %4s, %4s, %s", reg(OPF(code, AADD)), mbin(code), abin(code), adst(code)); break;
+	case F_FMNA: alu = util::string_format("fmna %s,%s,%s,%s", reg(OPF(code, AADD)), mbin(code), abin(code), adst(code)); break;
+	case F_FMNS: alu = util::string_format("fmns %s,%s,%s,%s", reg(OPF(code, AADD)), mbin(code), abin(code), adst(code)); break;
+	case F_FMAC: alu = util::string_format("fmac %s,%s,%s,%s", reg(OPF(code, AADD)), mbin(code), abin(code), adst(code)); break;
 	}
 
 	switch (OPF(code, IOCT))
 	{
-	case 1: return util::string_format("%s; floadrc %4s", alu, reg(OPF(code, DADD))); break;
-	case 2: return util::string_format("%s; fstore  %4s", alu, reg(OPF(code, DADD))); break;
-	case 3: return util::string_format("%s; fload   %4s", alu, reg(OPF(code, DADD))); break;
+	case 1: return util::string_format("%s; floadrc %s", alu, reg(OPF(code, DADD))); break;
+	case 2: return util::string_format("%s; fst %s", alu, reg(OPF(code, DADD))); break;
+	case 3: return util::string_format("%s; fld %s", alu, reg(OPF(code, DADD))); break;
 	default:
 		return alu;
 	}
@@ -489,14 +489,14 @@ std::string wtl3132_device::disassemble(u64 const code)
 
 std::string wtl3132_device::reg(unsigned const reg)
 {
-	return util::string_format(".f%d", reg);
+	return util::string_format("f%d", reg);
 }
 
 std::string wtl3132_device::mbin(u64 const code)
 {
 	switch (OPF(code, MBIN))
 	{
-	case 0: return util::string_format(".f%d", OPF(code, BADD));
+	case 0: return util::string_format("f%d", OPF(code, BADD));
 	case 1: return util::string_format("Cbus");
 	}
 
@@ -509,10 +509,10 @@ std::string wtl3132_device::abin(u64 const code)
 	switch (OPF(code, ABIN))
 	{
 	case 0: return util::string_format("Cbus");
-	case 1: return util::string_format(".f%d", OPF(code, BADD));
-	case 2: return util::string_format(".t2");
-	case 3: return util::string_format(".t1");
-	case 4: return util::string_format(".t3");
+	case 1: return util::string_format("f%d", OPF(code, BADD));
+	case 2: return util::string_format("t2");
+	case 3: return util::string_format("t1");
+	case 4: return util::string_format("t3");
 
 	case 6: return util::string_format("2");
 	case 7: return util::string_format("0");
@@ -525,10 +525,10 @@ std::string wtl3132_device::adst(u64 const code)
 {
 	switch (OPF(code, ADST))
 	{
-	case 0: return OPF(code, CWEN) ? util::string_format(".t3") : util::string_format(".f%d and .t3", OPF(code, CADD));
-	case 1: return OPF(code, CWEN) ? util::string_format(".t2") : util::string_format(".f%d and .t2", OPF(code, CADD));
-	case 2: return OPF(code, CWEN) ? util::string_format(".t1") : util::string_format(".f%d and .t1", OPF(code, CADD));
-	case 3: return OPF(code, CWEN) ? std::string() : util::string_format(".f%d", OPF(code, CADD));
+	case 0: return OPF(code, CWEN) ? util::string_format("t3") : util::string_format("f%d and t3", OPF(code, CADD));
+	case 1: return OPF(code, CWEN) ? util::string_format("t2") : util::string_format("f%d and t2", OPF(code, CADD));
+	case 2: return OPF(code, CWEN) ? util::string_format("t1") : util::string_format("f%d and t1", OPF(code, CADD));
+	case 3: return OPF(code, CWEN) ? std::string() : util::string_format("f%d", OPF(code, CADD));
 	}
 
 	// can't happen

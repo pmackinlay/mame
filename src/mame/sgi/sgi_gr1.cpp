@@ -30,7 +30,8 @@
  *   BP4      Bitplane Board   optional bitplane expansion (adds 16 pixel, 2 overlay/underlay, 2 wid planes, 4k color map)
  *   ZB3      Z-buffer         Z-buffer option (adds 24 Z-buffer planes, requires BP4)
  *   GT1/GT2  Turbo Board      turbo graphics option (4 TMS320C30 DSPs)
- *
+ *   CG3      Genlock Board
+ * 
  * Sources:
  *   - http://ohlandl.ipv7.net/video/Iris.html
  *   - https://www.4crawler.com/IrisVision/index.shtml
@@ -46,10 +47,26 @@
 /*
  * Irix 4.0.5 IDE WIP
  *
- * usage: buffon; ge5load; <test>; gr_exit; buffoff
+ * usage: monitor; ide fe; ^C; buffon; ge5load; <test>; gr_exit; buffoff
+ * 
+ * these diagnostics pass:
+ *   ctl1
+ *   cursor 0
+ *   cursor 1
+ *   drama
+ *   drama2
+ *   finflgs
+ *   gefifo
+ *   gfx_probe
+ *   patterns
+ *   resetgr1
+ *   turbo_probe
+ *   urama
+ *   uramd
+ *   xmap
  *
- * these diagnostics fail (all others pass):
- *   bitp  - options not detected
+ * these diagnostics fail:
+ *   bitp  - options not detected (hangs)
  *   ctl2  - graphics strobe
  *   gedma - ge5 failed to finish
  *   re    - fails line drawing test
@@ -113,28 +130,29 @@ void sgi_gr1_device::map_bank(address_map &map)
 					xmap->reg_w(offset, data);
 			}, "xmap_broadcast").umask32(0x000000ff);
 
-	map(0x84c0, 0x84c3).rw(FUNC(sgi_gr1_device::dr1_r), FUNC(sgi_gr1_device::dr1_w)).umask32(0xff000000);
-	map(0x84e0, 0x84e3).rw(FUNC(sgi_gr1_device::dr0_r), FUNC(sgi_gr1_device::dr0_w)).umask32(0xff000000);
+	map(0x84c0, 0x84c3).rw(FUNC(sgi_gr1_device::dr1_r), FUNC(sgi_gr1_device::dr1_w)).umask32(0xff000000); // dr3
+	map(0x84e0, 0x84e3).rw(FUNC(sgi_gr1_device::dr0_r), FUNC(sgi_gr1_device::dr0_w)).umask32(0xff000000); // dr4
 
-	map(0x8500, 0x850f).m(m_ramdac[0], FUNC(bt457_device::map)).umask32(0x000000ff);
-	map(0x8520, 0x852f).m(m_ramdac[1], FUNC(bt457_device::map)).umask32(0x000000ff);
-	map(0x8540, 0x854f).m(m_ramdac[2], FUNC(bt457_device::map)).umask32(0x000000ff);
+	map(0x8500, 0x850f).m(m_ramdac[0], FUNC(bt457_device::map)).umask32(0x000000ff); // red
+	map(0x8520, 0x852f).m(m_ramdac[1], FUNC(bt457_device::map)).umask32(0x000000ff); // green
+	map(0x8540, 0x854f).m(m_ramdac[2], FUNC(bt457_device::map)).umask32(0x000000ff); // blue
 
 	map(0x8560, 0x856f).m(m_cursor[0], FUNC(bt431_device::map)).umask32(0x000000ff);
 	map(0x8580, 0x858f).m(m_cursor[1], FUNC(bt431_device::map)).umask32(0x000000ff);
 
-	map(0x85a0, 0x85a3).rw(FUNC(sgi_gr1_device::dr4_r), FUNC(sgi_gr1_device::dr4_w)).umask32(0xff000000);
-	map(0x85c0, 0x85c3).rw(FUNC(sgi_gr1_device::dr3_r), FUNC(sgi_gr1_device::dr3_w)).umask32(0xff000000);
-	map(0x85e0, 0x85e3).rw(FUNC(sgi_gr1_device::dr2_r), FUNC(sgi_gr1_device::dr2_w)).umask32(0xff000000);
+	map(0x85a0, 0x85a3).rw(FUNC(sgi_gr1_device::dr4_r), FUNC(sgi_gr1_device::dr4_w)).umask32(0xff000000); // dr0
+	map(0x85c0, 0x85c3).rw(FUNC(sgi_gr1_device::dr3_r), FUNC(sgi_gr1_device::dr3_w)).umask32(0xff000000); // dr1
+	map(0x85e0, 0x85e3).rw(FUNC(sgi_gr1_device::dr2_r), FUNC(sgi_gr1_device::dr2_w)).umask32(0xff000000); // dr2
 
 	map(0x8640, 0x8783).w(m_ge, FUNC(sgi_ge5_device::command_w)).umask32(0xffff0000);
 	map(0x8740, 0x8743).r(m_ge, FUNC(sgi_ge5_device::pc_r)).umask32(0xffff0000);
 
-	map(0x0800, 0x0bff).r(m_ge, FUNC(sgi_ge5_device::buffer_r)).mirror(0x8000);
+	map(0x0800, 0x0bff).r(m_ge, FUNC(sgi_ge5_device::buffer_r)).mirror(0x8000); // fifo_r?
 	map(0x0800, 0x0bff).w(FUNC(sgi_gr1_device::fifo_w)).mirror(0x8000);
 	map(0x0c00, 0x0dff).w(m_ge, FUNC(sgi_ge5_device::mar_w)).mirror(0x8000);
-	map(0x0e00, 0x0e07).lw32([this](offs_t offset, u32 data) { m_bank->set_bank(offset); }, "mar_msb").mirror(0x8000);
+	map(0x0e00, 0x0e07).lw32([this](offs_t offset, u32 data) { m_bank->set_bank(offset); }, "mar_msb").mirror(0x8000); // mirror 0x81f8?
 
+	//map(0x0400, 0x07ff).rw(m_ge, FUNC(sgi_ge5_device::data_r), FUNC(sgi_ge5_device::data_w)); // w/o GRF1 fifo fix
 	map(0x1400, 0x17ff).rw(m_ge, FUNC(sgi_ge5_device::data_r), FUNC(sgi_ge5_device::data_w));
 	map(0x2000, 0x2007).rw(m_ge, FUNC(sgi_ge5_device::finish_r), FUNC(sgi_ge5_device::finish_w)).mirror(0x8000);
 
